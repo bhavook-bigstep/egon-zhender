@@ -16,13 +16,21 @@ from libs.schemas import ExceptionCode, FlagStatus, ReconcileReport
 
 @dataclass(frozen=True)
 class StageEvent:
-    """One immutable stage outcome for one item."""
+    """One immutable stage outcome for one item.
+
+    `detail` carries only non-sensitive, content-free metrics — counts, ratios, decisions,
+    scores, taxonomy category counts — never document content or matched strings.
+    """
 
     source_id: str
     stage: str
     outcome: str
     exception_code: ExceptionCode | None = None
-    detail: dict[str, float] = field(default_factory=dict)
+    detail: dict[str, float | int | str] = field(default_factory=dict)
+    # The step's per-item reasoning trace — one row per detection / routed category /
+    # model result. Content-free: entity TYPES, evidence LOCATIONS, scores, decisions —
+    # never the matched string, extracted text, or raw identifiers.
+    records: list[dict[str, str | float | int | None]] = field(default_factory=list)
 
 
 class RunLedger:

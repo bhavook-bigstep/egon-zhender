@@ -1,12 +1,8 @@
 {% extends "base.html" %}
 {% block title %}WS-1 · Source browser{% endblock %}
 {% block content %}
-  <h1>Workstream 1 — run on the sample</h1>
-  <p class="sub">
-    Browse authorised items (metadata only), select rows, then run one item interactively or
-    submit a batch. Selection freezes a job manifest and pins config
-    <span class="mono">{{ config_version }}</span>.
-  </p>
+  <span class="eyebrow">Workstream 1</span>
+  <h1>Sensitive-data identification</h1>
 
   {% if not inference_local %}
   <div class="banner warn">
@@ -27,6 +23,8 @@
       <button type="button" id="run-batch" class="ghost">Run batch</button>
       <span id="selcount" class="muted">0 selected</span>
     </div>
+
+    <div id="notifications"></div>
 
     <div class="table-wrap">
       <table>
@@ -53,10 +51,5 @@
       <span id="more-btn" class="muted">All {{ total }} items loaded.</span>
       {% endif %}
     </div>
-
-    <p class="muted">
-      Single = interactive run you watch step by step. Batch = queued to the worker; you get a
-      notification and can follow it on the <a href="/admin">admin monitor</a>.
-    </p>
   </div>
 {% endblock %}

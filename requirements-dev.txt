@@ -1,3 +1,6 @@
 # Dev/test-only extras (not needed at runtime).
 -r requirements.txt
-reportlab>=4    # generates the synthetic PDF test fixture (tests importorskip it)
+# Rich synthetic seed corpus generator (tests/fixtures/build_ws1_rich_sample.py):
+faker>=30       # well-formed fake PII (names, cards, IBANs, SSNs) — synthetic only
+reportlab>=4    # born-digital PDF fixtures
+pillow>=10      # scanned-image (PNG) fixtures for the OCR path

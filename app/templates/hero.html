@@ -1,33 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Prince Houston · Data Cleansing PoC{% endblock %}
 {% block content %}
-  <h1>Legacy Data Cleansing — Proof of Concept</h1>
-  <p class="sub">
-    Two auditable batch pipelines over a frozen snapshot. Choose a workstream to run on the
-    controlled sample. Config <span class="mono">{{ config_version }}</span>.
-  </p>
+  <section class="hero">
+    <span class="eyebrow">Egon Zehnder · Prince Houston</span>
+    <h1 class="hero-title">Legacy Data<br />Cleansing</h1>
+    <div class="hero-rule"></div>
+    <p class="hero-lead"><span class="mono">EZ-PH-DC-2026-01</span> — Proof of Concept</p>
+  </section>
 
-  <div class="grid">
+  <div class="grid entry">
     <a class="card tile" href="/ws1">
-      <h3>Workstream 1 — Sensitive-data identification</h3>
-      <p>Flag file notes &amp; documents against the approved taxonomy. Extract → OCR gate →
-         detect → assess → score. One explainable row per item.</p>
-      <p style="margin-top:12px"><span class="chip">Ready</span></p>
+      <span class="tile-no">01</span>
+      <h3>Workstream 1</h3>
+      <span class="tile-tag">Sensitive-data identification</span>
+      <span class="tile-go">Open →</span>
     </a>
 
     <div class="card tile disabled" aria-disabled="true">
-      <h3>Workstream 2 — People-record matching</h3>
-      <p>Deterministic keys + Splink probabilistic linkage (Prince Houston ⇄ Zendai).</p>
-      <p style="margin-top:12px"><span class="chip">Placeholder — not in this build</span></p>
+      <span class="tile-no">02</span>
+      <h3>Workstream 2</h3>
+      <span class="tile-tag">People-record matching</span>
+      <span class="chip">Placeholder</span>
     </div>
-  </div>
 
-  <h2>Monitor</h2>
-  <div class="grid">
     <a class="card tile" href="/admin">
-      <h3>Admin — migration monitor</h3>
-      <p>Live reconciliation across every run (headless and UI): authorised vs processed,
-         flagged / not-flagged / unable, in-progress, and the jobs table with cancel &amp; retry.</p>
+      <span class="tile-no">—</span>
+      <h3>Admin</h3>
+      <span class="tile-tag">Migration monitor</span>
+      <span class="tile-go">Open →</span>
     </a>
   </div>
 {% endblock %}

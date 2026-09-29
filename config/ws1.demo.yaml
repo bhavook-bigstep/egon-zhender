@@ -1,0 +1,91 @@
+# WS-1 FULL-CAPABILITY demo config (PoC). Real engines end-to-end over the rich synthetic
+# sample: docling extraction + OCR, Presidio PII detection, semantic screen, scoring.
+# LLM stays mock (no egress). Swap source.backend -> databricks when the source is connected.
+config_version: ws1-0.1.0-demo
+seed: 1729
+
+# DEMO ONLY (synthetic sample): the review UI reveals the matched value (card/IBAN/SSN…),
+# re-derived live from the read-only source and never persisted. Leave FALSE for real data.
+reveal_matched_content: true
+
+source:
+  backend: sample
+  root: tests/fixtures/ws1_sample_rich
+  manifest: tests/fixtures/ws1_rich_manifest.json
+
+inference:
+  provider: mock            # no egress; semantic routes which categories reach it
+  model_version: mock-0
+  approval_written: false
+  is_local: true
+  mock_hints:
+    financial: salary
+    government_id: passport
+    health: diagnosis
+
+semantic:
+  enabled: true             # SBERT screen ON — routes categories + emits SIMILARITY findings
+  model: sentence-transformers/all-MiniLM-L6-v2
+  route_threshold: 0.3
+  threshold_version: sem-1
+  examples:
+    financial:
+      - "annual salary and compensation package"
+      - "bank account IBAN and card payment details"
+      - "bonus and equity award"
+    government_id:
+      - "passport number"
+      - "social security number"
+      - "driver licence and national identity document"
+    health:
+      - "medical diagnosis and clinical condition"
+      - "patient treatment and medication under specialist care"
+
+extract:
+  engine: docling           # handles pdf/docx/xlsx/png (OCR) via the container
+  docling_url: http://localhost:5001
+
+ocr_gate:
+  min_text_density: 0.15
+  min_printable_ratio: 0.85
+  max_image_coverage: 0.5
+
+ocr:
+  provider: stub            # docling OCRs images during extraction; gate needs no 2nd engine
+
+taxonomy:
+  version: poc-synth-0
+  categories:
+    - financial
+    - government_id
+    - health
+
+detect:
+  engine: presidio_http     # real PII detection via the presidio-analyzer container
+  presidio_url: http://localhost:3001
+  presidio_score_threshold: 0.4
+  detector_version: detect-presidio-0.1
+  category_map:             # Presidio entity type -> approved taxonomy category
+    CREDIT_CARD: financial
+    IBAN_CODE: financial
+    US_BANK_NUMBER: financial
+    US_SSN: government_id
+    US_PASSPORT: government_id
+    US_DRIVER_LICENSE: government_id
+  deterministic_entities:   # checksum-validated (Luhn) -> deterministic_match
+    - CREDIT_CARD
+
+scoring:
+  flag_threshold: 40.0
+  band_high: 80.0
+  band_medium: 60.0
+  calibration:
+    artefact: null
+    version: cal-0
+    min_positives: 100
+    max_holdout_error: 5.0
+    method: sigmoid
+
+output:
+  result_dir: poc/out-demo
+  format: jsonl

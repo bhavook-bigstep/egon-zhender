@@ -13,7 +13,8 @@ and its cost.
 from __future__ import annotations
 
 import math
-from typing import Protocol, runtime_checkable
+import threading
+from typing import Any, Protocol, runtime_checkable
 
 from libs.schemas import (
     CalibrationStatus,
@@ -23,6 +24,11 @@ from libs.schemas import (
 )
 
 _DETECTOR_VERSION = "semantic-0.1"
+
+# Process-level model cache: the SBERT model is expensive to load, so load each model
+# name once per process and share it across jobs/threads (build_context runs per job).
+_MODEL_CACHE: dict[str, Any] = {}
+_MODEL_LOCK = threading.Lock()
 
 
 @runtime_checkable
@@ -36,9 +42,17 @@ class SbertEmbedder(TextEmbedder):
     """Sentence-Transformers embedder (lazy import)."""
 
     def __init__(self, model_name: str) -> None:
-        from sentence_transformers import SentenceTransformer  # lazy: heavy dependency
+        # Load once per (process, model_name); reuse the cached instance thereafter.
+        with _MODEL_LOCK:
+            model = _MODEL_CACHE.get(model_name)
+            if model is None:
+                from sentence_transformers import (  # lazy: heavy dependency
+                    SentenceTransformer,
+                )
 
-        self._model = SentenceTransformer(model_name)
+                model = SentenceTransformer(model_name)
+                _MODEL_CACHE[model_name] = model
+        self._model = model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vectors = self._model.encode(texts, normalize_embeddings=True)
@@ -71,18 +85,27 @@ class SemanticScreen:
             if phrases:
                 self._category_examples[category] = embedder.embed(phrases)
 
-    def screen(self, source_id: str, text: str) -> tuple[list[Finding], set[str]]:
-        """Return (SIMILARITY findings, categories to route to the LLM)."""
+    def screen(
+        self, source_id: str, text: str
+    ) -> tuple[list[Finding], set[str], dict[str, float]]:
+        """Return (SIMILARITY findings, categories to route, best cosine per category).
+
+        The per-category scores cover EVERY configured category (routed or not) so the
+        UI can show why each did or did not clear the route threshold — a content-free
+        reasoning trace.
+        """
         if not text.strip() or not self._category_examples:
-            return [], set()
+            return [], set(), {}
         item_vector = self._embedder.embed([text])[0]
         findings: list[Finding] = []
         routed: set[str] = set()
+        scores: dict[str, float] = {}
         for category in sorted(self._category_examples):
             best = max(
                 cosine(item_vector, example)
                 for example in self._category_examples[category]
             )
+            scores[category] = best
             if best >= self._route_threshold:
                 routed.add(category)
                 findings.append(
@@ -103,4 +126,4 @@ class SemanticScreen:
                         score=best,  # cosine 0-1 (not a probability)
                     )
                 )
-        return findings, routed
+        return findings, routed, scores

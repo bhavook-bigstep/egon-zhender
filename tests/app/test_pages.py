@@ -43,6 +43,7 @@ def test_hero_renders(client: TestClient) -> None:
     assert r.status_code == 200
     assert "Workstream 1" in r.text
     assert 'href="/ws1"' in r.text
+    assert 'id="notif-btn"' in r.text  # global jobs notification button in the navbar
 
 
 def test_ws1_browser_is_metadata_only(client: TestClient) -> None:
@@ -66,12 +67,14 @@ def test_live_page_wires_source_id(client: TestClient) -> None:
     r = client.get("/ws1/live?source_id=note_001")
     assert r.status_code == 200
     assert 'data-source-id="note_001"' in r.text
+    assert 'id="step-dialog"' in r.text  # per-step detail modal
+    assert 'class="steps"' in r.text  # horizontal step flow container
 
 
 def test_admin_page_renders(client: TestClient) -> None:
     r = client.get("/admin")
     assert r.status_code == 200
-    assert "Migration monitor" in r.text
+    assert "Migration" in r.text
     assert "Authorised" in r.text
 
 
@@ -82,7 +85,7 @@ def test_results_page_after_batch(client: TestClient) -> None:
     _poll(client, submitted["job_id"])
     r = client.get(f"/jobs/{submitted['job_id']}")
     assert r.status_code == 200
-    assert "Results workbook" in r.text
+    assert "Workbook" in r.text
     assert "Reconciled" in r.text
     assert "note_001" in r.text
     for token in SENSITIVE_TOKENS:
@@ -133,6 +136,75 @@ def test_matched_content_reveals_when_opted_in(tmp_path: Path) -> None:
     assert "Matched content" in r.text and "<mark>" in r.text  # span shown + highlighted
 
 
+def _stream_detect_record(c: TestClient, source_id: str) -> dict:
+    detect = None
+    with c.stream("GET", f"/api/interactive/stream?source_id={source_id}") as r:
+        for line in r.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            msg = json.loads(line[len("data:") :])
+            if msg.get("event") == "stage" and msg["stage"] == "detect":
+                detect = msg
+            if msg.get("event") == "done":
+                break
+    assert detect is not None and detect["records"]
+    return detect
+
+
+def test_step_detect_records_carry_no_value_by_default(client: TestClient) -> None:
+    detect = _stream_detect_record(client, "note_001")
+    assert all("value" not in rec for rec in detect["records"])  # location only, no value
+
+
+def test_step_detect_records_reveal_value_when_opted_in(tmp_path: Path) -> None:
+    """With reveal on, each detection record carries the matched value (synthetic PoC)."""
+    base = yaml.safe_load(Path("config/ws1.yaml").read_text(encoding="utf-8"))
+    base["output"]["result_dir"] = str(tmp_path / "out")
+    cfg_path = tmp_path / "ws1.yaml"
+    cfg_path.write_text(yaml.safe_dump(base), encoding="utf-8")
+    app = create_app(
+        str(cfg_path), str(tmp_path / "r.db"), start_worker=True, reveal_matches=True
+    )
+    with TestClient(app) as c:
+        detect = _stream_detect_record(c, "note_001")
+    assert any("value" in rec for rec in detect["records"])
+    assert any(rec.get("value") == "ACCT-123456" for rec in detect["records"])
+
+
+def test_reveal_enabled_via_config_flag(tmp_path: Path) -> None:
+    """`reveal_matched_content: true` in the config turns reveal on (no env/param needed)."""
+    base = yaml.safe_load(Path("config/ws1.yaml").read_text(encoding="utf-8"))
+    base["output"]["result_dir"] = str(tmp_path / "out")
+    base["reveal_matched_content"] = True
+    cfg_path = tmp_path / "ws1.yaml"
+    cfg_path.write_text(yaml.safe_dump(base), encoding="utf-8")
+    app = create_app(str(cfg_path), str(tmp_path / "r.db"), start_worker=True)  # no param/env
+    with TestClient(app) as c:
+        detect = _stream_detect_record(c, "note_001")
+    assert any(rec.get("value") == "ACCT-123456" for rec in detect["records"])
+
+
+def test_base_paths_redirect(client: TestClient) -> None:
+    """/jobs/ and /live/ (no id/param) redirect instead of raw 404/422."""
+    for path, target in [("/jobs/", "/admin"), ("/jobs", "/admin"),
+                         ("/live/", "/ws1"), ("/live", "/ws1")]:
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code in (303, 307), path
+        assert r.headers["location"] == target, path
+
+
+def test_live_without_source_redirects_to_browser(client: TestClient) -> None:
+    r = client.get("/ws1/live", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/ws1"
+
+
+def test_unknown_path_renders_branded_404(client: TestClient) -> None:
+    r = client.get("/does/not/exist", headers={"accept": "text/html"})
+    assert r.status_code == 404
+    assert "Page not found" in r.text
+
+
 def test_results_page_not_found(client: TestClient) -> None:
     r = client.get("/jobs/does-not-exist")
     assert r.status_code == 404
@@ -166,7 +238,7 @@ def test_results_page_renders_inline_items_from_interactive(client: TestClient) 
     assert job_id is not None
     r = client.get(f"/jobs/{job_id}")
     assert r.status_code == 200
-    assert "note_001" in r.text and "Results workbook" in r.text
+    assert "note_001" in r.text and "Workbook" in r.text
     for token in SENSITIVE_TOKENS:
         assert token not in r.text
 

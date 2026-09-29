@@ -24,3 +24,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+# Heavy ML libs (installed only for the real semantic/calibration path). Their shipped
+# type stubs assume Python >= 3.12 syntax; we do not type-check their internals.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "scipy.*", "sklearn.*", "sentence_transformers.*", "torch.*", "transformers.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

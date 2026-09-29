@@ -263,3 +263,7 @@ class Ws1Config(BaseModel):
     output: OutputConfig
     extract: ExtractConfig = Field(default_factory=ExtractConfig)
     semantic: SemanticConfig = Field(default_factory=SemanticConfig)
+    # DEMO/synthetic only. When true, the review UI reveals the matched value (re-derived
+    # live from the read-only source, never persisted). MUST stay false for real data —
+    # it surfaces PII. The base/production configs leave it false (content-free default).
+    reveal_matched_content: bool = False

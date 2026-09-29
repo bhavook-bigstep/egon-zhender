@@ -166,6 +166,28 @@ class JobRegistry:
             self._conn.commit()
         return True
 
+    def reconcile_stale_running(self) -> int:
+        """Mark orphaned RUNNING jobs FAILED. A RUNNING job cannot survive a process
+        restart (its thread is gone), so any found at startup is stale. Returns the count.
+        QUEUED jobs are left for the worker to drain."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT payload FROM jobs WHERE status=?", (JobStatus.RUNNING.value,)
+            ).fetchall()
+            count = 0
+            for row in rows:
+                job = Job.model_validate_json(row["payload"])
+                job.status = JobStatus.FAILED
+                job.exception = job.exception or "interrupted (server restart)"
+                job.updated_at = _now()
+                self._conn.execute(
+                    "UPDATE jobs SET status=?, updated_at=?, payload=? WHERE job_id=?",
+                    (job.status.value, job.updated_at, job.model_dump_json(), job.job_id),
+                )
+                count += 1
+            self._conn.commit()
+        return count
+
     def increment_progress(self, job_id: str, delta: int = 1) -> None:
         """Atomically bump progress_done (read-modify-write under ONE lock).
 

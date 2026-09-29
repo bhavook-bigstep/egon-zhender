@@ -120,14 +120,41 @@ def test_run_interactive_streams_events(tmp_path: Path) -> None:
         assert "text" not in e
 
 
-def test_run_interactive_rerun_same_source_does_not_crash(tmp_path: Path) -> None:
-    """Deterministic job_id → a re-run must upsert, not collide on the PK."""
+def test_run_interactive_emits_full_step_flow(tmp_path: Path) -> None:
+    """Every pipeline step streams as a stage event with content-free detail metrics."""
+    service, _ = _service(tmp_path)
+    events = list(service.run_interactive(_req(JobType.SINGLE, source_ids=["note_001"])))
+    stages = [e["stage"] for e in events if e["event"] == "stage"]
+    for expected in ["ingest", "extract", "ocr_gate", "detect", "screen", "assess", "score"]:
+        assert expected in stages, f"missing step: {expected}"
+    detailed = [e for e in events if e["event"] == "stage" and e.get("detail")]
+    assert detailed, "steps should carry content-free detail metrics"
+    assert all(isinstance(e["detail"], dict) for e in detailed)
+    # Each step carries a content-free reasoning trace (records), never matched strings.
+    by_stage = {e["stage"]: e for e in events if e["event"] == "stage"}
+    detect_records = by_stage["detect"]["records"]
+    assert detect_records and {"entity", "category", "score_type", "location"} <= set(
+        detect_records[0]
+    )
+    for rec in detect_records:  # location only, no matched value
+        assert "location" in rec and "value" not in rec
+
+
+def test_run_interactive_rerun_creates_distinct_history_entries(tmp_path: Path) -> None:
+    """Each interactive run gets a unique registry id → a re-run is its own history entry."""
     service, registry = _service(tmp_path)
     first = list(service.run_interactive(_req(JobType.SINGLE, source_ids=["note_001"])))
     second = list(service.run_interactive(_req(JobType.SINGLE, source_ids=["note_001"])))
     assert first[-1]["event"] == "done"
-    assert second[-1]["event"] == "done"  # no IntegrityError broke the stream
-    assert len(registry.list()) == 1  # same run_id → one upserted row, not two
+    assert second[-1]["event"] == "done"
+    jobs = registry.list()
+    assert len(jobs) == 2  # two distinct runs recorded, not collapsed onto one id
+    assert len({j.job_id for j in jobs}) == 2
+    # the done event's job_id matches its registry record (workbook link resolves)
+    assert first[-1]["result"]["job_id"] != second[-1]["result"]["job_id"]
+    assert {first[-1]["result"]["job_id"], second[-1]["result"]["job_id"]} == {
+        j.job_id for j in jobs
+    }
 
 
 def test_run_interactive_worker_error_yields_error_and_fails_job(

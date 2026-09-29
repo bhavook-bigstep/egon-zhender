@@ -80,6 +80,7 @@ def write_ledger(
                     event.exception_code.value if event.exception_code else None
                 ),
                 "detail": event.detail,
+                "records": event.records,
             }
             for event in ledger.events
         ],

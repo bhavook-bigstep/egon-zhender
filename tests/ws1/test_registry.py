@@ -167,6 +167,21 @@ def test_request_cancel_on_terminal_job_returns_false(tmp_path: Path) -> None:
     assert reloaded is not None and reloaded.cancel_requested is False
 
 
+def test_reconcile_stale_running_marks_failed(tmp_path: Path) -> None:
+    """Orphaned RUNNING jobs are failed on reconcile; queued/terminal are untouched."""
+    reg = JobRegistry(tmp_path / "r.db")
+    reg.create(_job("a1", JobStatus.RUNNING))
+    reg.create(_job("a2", JobStatus.QUEUED))
+    reg.create(_completed_job("a3", JobStatus.COMPLETED, flagged=1, unable=0))
+    n = reg.reconcile_stale_running()
+    assert n == 1
+    a1 = reg.get("a1")
+    assert a1 is not None and a1.status is JobStatus.FAILED
+    assert a1.exception == "interrupted (server restart)"
+    assert reg.get("a2").status is JobStatus.QUEUED  # queued left for the worker
+    assert reg.get("a3").status is JobStatus.COMPLETED
+
+
 def test_migration_summary_counts_active_in_progress(tmp_path: Path) -> None:
     """An ACTIVE (RUNNING) job's progress_done rolls into in_progress and cuts remaining."""
     reg = JobRegistry(tmp_path / "r.db")

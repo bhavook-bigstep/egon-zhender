@@ -1,0 +1,82 @@
+[
+  {
+    "source_id": "accounts_001",
+    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "content_hash": "99ee6955ff8a7feadfbf803c34f7332250c2ceada263348140183f69be76e22d",
+    "path": "accounts_001.xlsx",
+    "author": "Heather Sanders",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-794",
+    "linked_project": "proj-gamma"
+  },
+  {
+    "source_id": "letter_comp_001",
+    "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "content_hash": "73cf81fcafaf8639baea3abe05d70977f7e3a96b8fc742242ff18673d08bab8a",
+    "path": "letter_comp_001.docx",
+    "author": "Ashley Richardson",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-870",
+    "linked_project": "proj-gamma"
+  },
+  {
+    "source_id": "memo_health_001",
+    "content_type": "application/pdf",
+    "content_hash": "9087f49173b8f4087c139dae7c430fb3b6a6add36b4cc505e90064a7cc8225f9",
+    "path": "memo_health_001.pdf",
+    "author": "Michael Bonilla",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-543",
+    "linked_project": "proj-beta"
+  },
+  {
+    "source_id": "note_clean_001",
+    "content_type": "text/plain",
+    "content_hash": "084b3e1a406c07cc8c161f0a3d9e78276b5d627aea93c9edde7cc60172e93493",
+    "path": "note_clean_001.txt",
+    "author": "Kimberly Turner",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-625",
+    "linked_project": "proj-gamma"
+  },
+  {
+    "source_id": "note_fin_001",
+    "content_type": "text/plain",
+    "content_hash": "0691b9d1178d80e1437814b834ef88c2224b1ad26e20bcce924aa1efd61b9eae",
+    "path": "note_fin_001.txt",
+    "author": "Traci Bell",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-105",
+    "linked_project": "proj-alpha"
+  },
+  {
+    "source_id": "note_gov_001",
+    "content_type": "text/plain",
+    "content_hash": "742d16b70d05d0689883524b9b3e5a7cabd1dd8005c8ea696f42d3202a3c366a",
+    "path": "note_gov_001.txt",
+    "author": "Dylan Castro",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-208",
+    "linked_project": "proj-alpha"
+  },
+  {
+    "source_id": "scan_gov_001",
+    "content_type": "image/png",
+    "content_hash": "7d69e2302a55eb020369e0292fe62067d8d46287591d318a66ffdc3a9b26c347",
+    "path": "scan_gov_001.png",
+    "author": "Cassie Mitchell",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-362",
+    "linked_project": "proj-beta"
+  },
+  {
+    "source_id": "statement_fin_001",
+    "content_type": "application/pdf",
+    "content_hash": "f37c5a958d9f8cac37ad80c2435554e5f1489c80b5a5e3b924d1a0856058690a",
+    "path": "statement_fin_001.pdf",
+    "author": "Noah White",
+    "datetime": "2026-02-01T10:00:00Z",
+    "linked_executive": "exec-746",
+    "linked_project": "proj-beta"
+  }
+]

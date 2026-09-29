@@ -39,6 +39,8 @@ def _event_dict(event: StageEvent) -> dict[str, Any]:
         "stage": event.stage,
         "outcome": event.outcome,
         "exception_code": event.exception_code.value if event.exception_code else None,
+        "detail": dict(event.detail),  # content-free metrics for the step-by-step view
+        "records": [dict(r) for r in event.records],  # per-step reasoning trace
     }
 
 
@@ -185,11 +187,11 @@ class JobService:
         by_id = {entry.source_id: entry for entry in build_reader(cfg).list_manifest()}
         selected = [by_id[sid] for sid in selected_ids]
         run_id = compute_run_id(selected, cfg)
-        job_id = f"{request.job_type.value}-{run_id}"
-        # Deterministic job_id → re-running the same item must replace, not collide on the
-        # PK. upsert keeps the stable id (so the workbook URL is stable) and is safe because
-        # a re-run is idempotent (same run_id, namespaced output).
-        self._registry.upsert(
+        # Unique registry id per run so EVERY interactive run is its own history entry
+        # (a re-run of the same item no longer collapses onto a deterministic id). The
+        # deterministic run_id is kept on the record for reproducibility/traceability.
+        job_id = f"single-{uuid.uuid4().hex[:12]}"
+        self._registry.create(
             Job(
                 job_id=job_id,
                 request=request,
@@ -205,16 +207,28 @@ class JobService:
         box: dict[str, Any] = {}
 
         def worker() -> None:
-            # Always enqueue the sentinel, even on failure, so the stream never hangs; an
-            # exception here would otherwise strand the job RUNNING and block events.get().
+            # Finalize the REGISTRY here (not after the yield loop) so the job always
+            # reaches a terminal state even if the SSE client disconnects early and the
+            # generator is abandoned. Always enqueue the sentinel so the stream never hangs.
             try:
-                box["result"] = run_single(
+                result = run_single(
                     self._config_path,
                     request,
                     on_event=lambda ev: events.put(("stage", ev)),
                 )
-            except Exception as exc:  # surfaced to the client + registry below (fail loud)
+                result.job_id = job_id  # align with the registry id (workbook link)
+                box["result"] = result
+                current = self._registry.get(job_id)
+                if current is not None:
+                    self._apply_result(current, result)
+                    self._registry.update(current)
+            except Exception as exc:  # fail loud: record FAILED + surface to the client
                 box["error"] = str(exc)
+                current = self._registry.get(job_id)
+                if current is not None:
+                    current.status = JobStatus.FAILED
+                    current.exception = str(exc)
+                    self._registry.update(current)
             finally:
                 events.put(sentinel)
 
@@ -230,19 +244,10 @@ class JobService:
         thread.join()
 
         if "error" in box:
-            job = self._registry.get(job_id)
-            if job is not None:
-                job.status = JobStatus.FAILED
-                job.exception = box["error"]
-                self._registry.update(job)
             yield {"event": "error", "message": box["error"]}
             return
 
         result: JobResult = box["result"]
         for row in result.items:
             yield {"event": "item", "row": row.model_dump(mode="json")}
-        job = self._registry.get(job_id)
-        if job is not None:
-            self._apply_result(job, result)
-            self._registry.update(job)
         yield {"event": "done", "result": result.model_dump(mode="json")}

@@ -12,7 +12,18 @@
   <header class="topbar">
     <a class="brand" href="/">Prince Houston <span>· Data Cleansing PoC</span></a>
     <nav>
-      <a href="/ws1">WS-1</a>
+      <div class="notif-menu">
+        <button type="button" id="notif-btn" class="nav-btn" aria-label="Jobs">
+          Jobs <span id="notif-badge" class="badge" hidden></span>
+        </button>
+        <div id="notif-panel" class="notif-panel" hidden>
+          <div class="notif-panel-head">
+            <span>Jobs &amp; batches</span>
+            <button type="button" id="notif-clear" class="notif-clear">Clear completed</button>
+          </div>
+          <div id="notif-list" class="notif-list"></div>
+        </div>
+      </div>
       <a href="/admin">Admin</a>
     </nav>
   </header>

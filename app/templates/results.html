@@ -6,11 +6,12 @@
   <div class="banner warn">Job not found. It may have expired or never existed.</div>
   <p class="controls"><a class="btn ghost" href="/admin">← Admin monitor</a></p>
   {% else %}
-  <h1>Results workbook</h1>
-  <p class="sub">
+  <span class="eyebrow">Workstream 1 · Results</span>
+  <h1>Workbook</h1>
+  <p class="meta">
     Job <span class="mono">{{ job.job_id }}</span> · run <span class="mono">{{ job.run_id or "—" }}</span>
     · config <span class="mono">{{ job.request.config_version }}</span> · type {{ job.request.job_type }}
-    · status <span class="chip">{{ job.status }}</span>
+    · status <span class="chip {{ job.status }}">{{ job.status }}</span>
   </p>
 
   {% if reconcile %}

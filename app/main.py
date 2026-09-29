@@ -11,15 +11,17 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from libs.config import load_ws1_config
 from libs.jobs import Job, JobRequest
@@ -52,6 +54,38 @@ def _evidence_str(loc: dict[str, Any]) -> str:
     if loc.get("char_start") is not None:
         parts.append(f"chars {loc['char_start']}–{loc.get('char_end', '?')}")
     return ", ".join(parts) or "—"
+
+
+_CHAR_LOC_RE = re.compile(r"chars (\d+)-(\d+)")
+
+
+def _extract_source_text(config_path: str, source_id: str) -> str | None:
+    """Re-derive one item's extracted text from the read-only source (for gated reveal)."""
+    cfg = load_ws1_config(config_path)
+    reader = build_reader(cfg)
+    engine = build_extraction_engine(cfg.extract)
+    entry = next((e for e in reader.list_manifest() if e.source_id == source_id), None)
+    if entry is None:
+        return None
+    try:
+        return engine.extract(entry, ingest(reader, entry)).text
+    except Exception:  # extraction may fail — then no value is revealed
+        return None
+
+
+def _reveal_record_values(records: list[dict[str, Any]], text: str | None) -> None:
+    """PoC/gated: add the matched `value` to each detection record with char offsets.
+
+    The value is sliced live from the read-only source `text` and NOT persisted anywhere
+    (the pipeline records + ledger stay content-free). Off unless reveal is enabled.
+    """
+    if not text:
+        return
+    for record in records:
+        match = _CHAR_LOC_RE.search(str(record.get("location", "")))
+        if match:
+            start, end = int(match.group(1)), int(match.group(2))
+            record["value"] = text[start:end]
 
 
 def _reveal_matched_content(
@@ -132,10 +166,15 @@ def create_app(
 ) -> FastAPI:
     config_path = config_path or os.environ.get("WS1_API_CONFIG", "config/ws1.yaml")
     registry_db = registry_db or os.environ.get("WS1_REGISTRY_DB", "poc/registry.db")
-    # Off by default (production-safe). Opt-in reveals the matched span in the review UI,
+    # Off by default (production-safe). Opt-in reveals the matched value in the review UI,
     # re-derived live from the read-only source and never persisted (Contracts 2 & 3).
+    # Precedence: explicit arg > WS1_SHOW_MATCHED_CONTENT env > config.reveal_matched_content.
     if reveal_matches is None:
-        reveal_matches = os.environ.get("WS1_SHOW_MATCHED_CONTENT") == "1"
+        env_flag = os.environ.get("WS1_SHOW_MATCHED_CONTENT")
+        if env_flag is not None:
+            reveal_matches = env_flag == "1"
+        else:
+            reveal_matches = load_ws1_config(config_path).reveal_matched_content
 
     registry = JobRegistry(registry_db)
     service = JobService(config_path, registry)
@@ -154,6 +193,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        registry.reconcile_stale_running()  # clear jobs orphaned by a prior restart
         if worker is not None:
             worker.start()
         yield
@@ -164,6 +204,15 @@ def create_app(
     app = FastAPI(title="WS-1 PoC service", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
     templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _not_found(request: Request, exc: StarletteHTTPException) -> Any:
+        # Branded 404 page for browser navigation; JSON for API clients.
+        if exc.status_code == 404 and "text/html" in request.headers.get("accept", ""):
+            return templates.TemplateResponse(
+                request=request, name="notfound.html", context={}, status_code=404
+            )
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     def _config_meta() -> dict[str, Any]:
         cfg = load_ws1_config(config_path)
@@ -219,10 +268,23 @@ def create_app(
         )
 
     @app.get("/ws1/live", response_class=HTMLResponse)
-    def page_live(request: Request, source_id: str) -> Any:
+    def page_live(request: Request, source_id: str | None = None) -> Any:
+        if not source_id:  # no item selected → send back to the browser to pick one
+            return RedirectResponse("/ws1", status_code=303)
         return templates.TemplateResponse(
             request=request, name="live.html", context={"source_id": source_id}
         )
+
+    # Friendly redirects for base paths that carry no id/param (avoid raw 404/422).
+    @app.get("/jobs")
+    @app.get("/jobs/")
+    def jobs_redirect() -> Any:
+        return RedirectResponse("/admin", status_code=303)
+
+    @app.get("/live")
+    @app.get("/live/")
+    def live_redirect() -> Any:
+        return RedirectResponse("/ws1", status_code=303)
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def page_results(request: Request, job_id: str) -> Any:
@@ -333,8 +395,14 @@ def create_app(
             source_ids=[source_id],
         )
 
+        text_cache: dict[str, str | None] = {}
+
         def gen() -> Iterator[str]:
             for event in service.run_interactive(request):
+                if reveal_matches and event.get("event") == "stage" and event.get("records"):
+                    if "t" not in text_cache:
+                        text_cache["t"] = _extract_source_text(config_path, source_id)
+                    _reveal_record_values(event["records"], text_cache["t"])
                 yield _sse(event)
 
         return StreamingResponse(gen(), media_type="text/event-stream")

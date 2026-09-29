@@ -21,6 +21,7 @@ from libs.inference.base import InferenceProvider
 from libs.inference.mock import MockProvider
 from libs.inference.openweight import HttpChatClient, OpenWeightProvider
 from libs.schemas import (
+    EvidenceLocation,
     ExceptionCode,
     Finding,
     ManifestEntry,
@@ -168,6 +169,20 @@ def compute_run_id(entries: list[ManifestEntry], cfg: Ws1Config) -> str:
     return digest.hexdigest()[:12]
 
 
+def _loc_str(loc: EvidenceLocation) -> str:
+    """Content-free evidence location (page/sheet/cell/offset) — never the matched text."""
+    parts: list[str] = []
+    if loc.page is not None:
+        parts.append(f"p{loc.page}")
+    if loc.sheet:
+        parts.append(f"sheet {loc.sheet}")
+    if loc.cell:
+        parts.append(f"cell {loc.cell}")
+    if loc.char_start is not None:
+        parts.append(f"chars {loc.char_start}-{loc.char_end}")
+    return ", ".join(parts) or "-"
+
+
 def process_item(
     ctx: Ws1Context,
     entry: ManifestEntry,
@@ -179,12 +194,21 @@ def process_item(
     cfg = ctx.cfg
     try:
         data = ingest(ctx.reader, entry)
+        ledger.record_stage_event(
+            StageEvent(
+                source_id=entry.source_id,
+                stage="ingest",
+                outcome="read",
+                detail={"bytes": len(data)},
+            )
+        )
         extracted = ctx.extraction_engine.extract(entry, data)
         ledger.record_stage_event(
             StageEvent(
                 source_id=entry.source_id,
                 stage="extract",
                 outcome=cfg.extract.engine,
+                detail={"chars": len(extracted.text)},
             )
         )
         extracted = apply_ocr_gate(entry, extracted, cfg.ocr_gate, ctx.ocr, data)
@@ -200,14 +224,75 @@ def process_item(
             )
         )
         deterministic = ctx.detection_engine.analyze(extracted)
+        detect_records: list[dict[str, str | float | int | None]] = [
+            {
+                "entity": finding.rule_id or finding.category,
+                "category": finding.category,
+                "score_type": finding.score_type.value,
+                "score": round(finding.score, 1) if finding.score is not None else None,
+                "location": _loc_str(finding.evidence_location),
+            }
+            for finding in deterministic
+        ]
+        ledger.record_stage_event(
+            StageEvent(
+                source_id=entry.source_id,
+                stage="detect",
+                outcome=cfg.detect.engine,
+                detail={"detections": len(deterministic)},
+                records=detect_records,
+            )
+        )
         if ctx.screen is not None:
-            similarity_findings, routed = ctx.screen.screen(
+            similarity_findings, routed, screen_scores = ctx.screen.screen(
                 entry.source_id, extracted.text
             )
+            screen_outcome = "routed"
         else:
             similarity_findings, routed = [], set(cfg.taxonomy.categories)
+            screen_scores = {}
+            screen_outcome = "disabled"
+        screen_records: list[dict[str, str | float | int | None]] = [
+            {
+                "category": category,
+                "similarity": round(score, 3),
+                "threshold": cfg.semantic.route_threshold,
+                "routed": "yes" if category in routed else "no",
+            }
+            for category, score in sorted(screen_scores.items())
+        ]
+        ledger.record_stage_event(
+            StageEvent(
+                source_id=entry.source_id,
+                stage="screen",
+                outcome=screen_outcome,
+                detail={
+                    "routed_categories": len(routed),
+                    "similarity_findings": len(similarity_findings),
+                },
+                records=screen_records,
+            )
+        )
         model = assess(
             extracted, routed, cfg.scoring, ctx.provider, cfg.inference.hash_key_env
+        )
+        assess_records: list[dict[str, str | float | int | None]] = [
+            {
+                "category": finding.category,
+                "score_type": finding.score_type.value,
+                "score": round(finding.score, 1) if finding.score is not None else None,
+                "band": finding.band.value if finding.band else None,
+            }
+            for finding in model
+        ]
+        ledger.record_stage_event(
+            StageEvent(
+                source_id=entry.source_id,
+                stage="assess",
+                outcome=cfg.inference.provider,
+                detail={"model_findings": len(model)},
+                records=assess_records,
+            )
         )
         scored = finalize_scored(deterministic + model, cfg.scoring, ctx.calibrator)
         findings = scored + similarity_findings
@@ -220,6 +305,24 @@ def process_item(
             run_id=run_id,
             config_version=cfg.config_version,
             snapshot_id=snapshot_id,
+        )
+        score_detail: dict[str, float | int | str] = {
+            "findings": len(findings),
+            "categories": len(summary.sensitivity_categories),
+        }
+        if summary.strongest_score is not None:
+            score_detail["strongest_score"] = summary.strongest_score
+        if summary.strongest_band is not None:
+            score_detail["band"] = summary.strongest_band.value
+        if summary.strongest_score_type is not None:
+            score_detail["score_type"] = summary.strongest_score_type.value
+        ledger.record_stage_event(
+            StageEvent(
+                source_id=entry.source_id,
+                stage="score",
+                outcome=summary.flag_status.value,
+                detail=score_detail,
+            )
         )
     except PipelineItemError as err:
         ledger.record_stage_event(
