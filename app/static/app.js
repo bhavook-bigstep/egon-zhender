@@ -258,8 +258,28 @@ function renderJobs(jobs) {
   });
 }
 
+// ---- findings modal dialogs -------------------------------------------
+function initDialogs() {
+  document.addEventListener("click", (e) => {
+    const opener = e.target.closest("[data-dialog]");
+    if (opener) {
+      const dlg = document.getElementById(opener.dataset.dialog);
+      if (dlg && typeof dlg.showModal === "function") dlg.showModal();
+      return;
+    }
+    if (e.target.closest("[data-close]")) {
+      const dlg = e.target.closest("dialog");
+      if (dlg) dlg.close();
+      return;
+    }
+    // Click on the backdrop (the dialog element itself) closes it.
+    if (e.target.tagName === "DIALOG") e.target.close();
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initWs1();
   initLive();
   initAdmin();
+  initDialogs();
 });

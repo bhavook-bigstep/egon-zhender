@@ -41,6 +41,7 @@
   </div>
 
   {% if rows %}
+  <div class="table-wrap">
   <table id="workbook">
     <thead>
       <tr>
@@ -67,42 +68,68 @@
         <td>
           {% set items = findings_by_source.get(r.source_id, []) %}
           {% if items %}
-          <details>
-            <summary>{{ items|length }} finding(s)</summary>
-            <table>
-              <thead><tr><th>Category</th><th>Signal</th><th>Reason</th><th>Score type</th>
-                         <th>Band</th><th>Score</th><th>Threshold</th>
-                         <th>Evidence location</th><th>Rule / detector</th></tr></thead>
-              <tbody>
-                {% for f in items %}
-                <tr>
-                  <td>{{ f.category }}</td>
-                  <td>
-                    {% if f.routing_only %}<span class="chip similarity">routing only</span>
-                    {% else %}<span class="chip">flag-driving</span>{% endif %}
-                  </td>
-                  <td>{{ f.reason_text }}</td>
-                  <td><span class="chip {{ f.score_type }}">{{ f.score_type }}</span></td>
-                  <td>{{ f.band or "—" }}</td>
-                  <td>
-                    {% if f.score is none %}—
-                    {% elif f.routing_only %}{{ "%.2f"|format(f.score) }} <span class="muted">(cosine 0–1)</span>
-                    {% else %}{{ "%.1f"|format(f.score) }} <span class="muted">(0–100)</span>{% endif %}
-                  </td>
-                  <td class="mono">{{ f.threshold_version or "—" }}</td>
-                  <td class="mono">{{ f.evidence_str }}</td>
-                  <td class="mono">{{ f.rule_id or f.detector_version }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </details>
+          <button class="ghost" data-dialog="finding-dlg-{{ loop.index }}">
+            View {{ items|length }} finding{{ "s" if items|length != 1 else "" }}
+          </button>
           {% else %}—{% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
+
+  {# One modal dialog per item with findings — opened by its row button. #}
+  {% for r in rows %}
+    {% set items = findings_by_source.get(r.source_id, []) %}
+    {% if items %}
+    <dialog id="finding-dlg-{{ loop.index }}" class="finding-dialog">
+      <div class="dialog-head">
+        <div>
+          <strong class="mono">{{ r.source_id }}</strong>
+          <span class="chip {{ r.flag_status }}">{{ r.flag_status }}</span>
+          <span class="muted">{{ r.content_type }}</span>
+        </div>
+        <button class="ghost icon" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="muted" style="margin:0 0 4px">
+          {{ items|length }} finding{{ "s" if items|length != 1 else "" }} ·
+          categories: {{ r.sensitivity_categories|join(", ") or "—" }}
+        </p>
+        {% for f in items %}
+        <div class="finding-card">
+          <div class="fc-head">
+            <span class="chip cat">{{ f.category }}</span>
+            {% if f.routing_only %}<span class="chip similarity">routing only</span>
+            {% else %}<span class="chip">flag-driving</span>{% endif %}
+            <span class="fc-score">
+              {% if f.score is none %}deterministic match
+              {% elif f.routing_only %}{{ "%.2f"|format(f.score) }} <span class="muted">cosine</span>{% if f.band %} · {{ f.band }}{% endif %}
+              {% else %}{{ "%.1f"|format(f.score) }} <span class="muted">/100</span>{% if f.band %} · {{ f.band }}{% endif %}{% endif %}
+            </span>
+          </div>
+          <div class="fc-reason">{{ f.reason_text }}</div>
+          {% if f.char_match is defined %}
+          <div class="fc-match">
+            <div class="fc-match-label">Matched content
+              <span class="muted">· PoC · re-read from source in-boundary, not stored</span></div>
+            <div class="fc-match-text mono">{{ f.char_pre }}<mark>{{ f.char_match }}</mark>{{ f.char_post }}</div>
+          </div>
+          {% endif %}
+          <dl class="fc-meta">
+            <div><dt>Score type</dt><dd>{{ f.score_type }}</dd></div>
+            <div><dt>Calibration</dt><dd>{{ f.calibration_status }}</dd></div>
+            <div><dt>Evidence location</dt><dd class="mono">{{ f.evidence_str }}</dd></div>
+            <div><dt>Threshold</dt><dd class="mono">{{ f.threshold_version or "—" }}</dd></div>
+            <div><dt>Rule / detector</dt><dd class="mono">{{ f.rule_id or f.detector_version }}</dd></div>
+          </dl>
+        </div>
+        {% endfor %}
+      </div>
+    </dialog>
+    {% endif %}
+  {% endfor %}
   {% else %}
   <p class="muted">No rows yet — the job may still be queued or running.
      Follow it on the <a href="/admin">admin monitor</a>.</p>

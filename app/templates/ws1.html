@@ -28,18 +28,20 @@
       <span id="selcount" class="muted">0 selected</span>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th class="rowsel"><input type="checkbox" id="select-all" /></th>
-          <th>Source ID</th><th>Type</th><th>Author</th><th>Date</th>
-          <th>Executive</th><th>Project</th>
-        </tr>
-      </thead>
-      <tbody id="rows">
-        {% include "_rows.html" %}
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="rowsel"><input type="checkbox" id="select-all" /></th>
+            <th>Source ID</th><th>Type</th><th>Author</th><th>Date</th>
+            <th>Executive</th><th>Project</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          {% include "_rows.html" %}
+        </tbody>
+      </table>
+    </div>
 
     <div class="controls">
       {% if next_offset is not none %}

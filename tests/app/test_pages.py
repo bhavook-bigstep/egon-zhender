@@ -89,6 +89,50 @@ def test_results_page_after_batch(client: TestClient) -> None:
         assert token not in r.text  # workbook shows categories/locations, not content
 
 
+def test_results_page_findings_open_in_dialog(client: TestClient) -> None:
+    """Findings render as a modal dialog (opened by a per-row button), not a nested table."""
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+    r = client.get(f"/jobs/{submitted['job_id']}")
+    assert r.status_code == 200
+    assert 'data-dialog="finding-dlg-' in r.text  # per-row opener button
+    assert "<dialog" in r.text and "finding-card" in r.text  # server-rendered modal
+    for token in SENSITIVE_TOKENS:
+        assert token not in r.text  # dialog shows reason template + location only
+
+
+def test_matched_content_is_gated_off_by_default(client: TestClient) -> None:
+    """The default app must NOT reveal matched PII spans (production-safe default)."""
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+    r = client.get(f"/jobs/{submitted['job_id']}")
+    assert "Matched content" not in r.text
+    for token in SENSITIVE_TOKENS:
+        assert token not in r.text
+
+
+def test_matched_content_reveals_when_opted_in(tmp_path: Path) -> None:
+    """With reveal_matches=True, the review dialog shows the matched span (synthetic PoC)."""
+    base = yaml.safe_load(Path("config/ws1.yaml").read_text(encoding="utf-8"))
+    base["output"]["result_dir"] = str(tmp_path / "out")
+    cfg_path = tmp_path / "ws1.yaml"
+    cfg_path.write_text(yaml.safe_dump(base), encoding="utf-8")
+    app = create_app(
+        str(cfg_path), str(tmp_path / "r.db"), start_worker=True, reveal_matches=True
+    )
+    with TestClient(app) as c:
+        submitted = c.post(
+            "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+        ).json()
+        _poll(c, submitted["job_id"])
+        r = c.get(f"/jobs/{submitted['job_id']}")
+    assert "Matched content" in r.text and "<mark>" in r.text  # span shown + highlighted
+
+
 def test_results_page_not_found(client: TestClient) -> None:
     r = client.get("/jobs/does-not-exist")
     assert r.status_code == 404

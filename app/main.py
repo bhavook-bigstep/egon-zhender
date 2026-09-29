@@ -25,12 +25,15 @@ from libs.config import load_ws1_config
 from libs.jobs import Job, JobRequest
 from libs.registry import JobRegistry
 from libs.schemas import Finding, ScoreType, Ws1Summary
+from pipelines.workstream1_sensitive.extract_engine import build_extraction_engine
+from pipelines.workstream1_sensitive.ingest import ingest
 from pipelines.workstream1_sensitive.job_service import JobService
 from pipelines.workstream1_sensitive.runner import build_reader
 from pipelines.workstream1_sensitive.worker import Worker
 
 _APP_DIR = Path(__file__).resolve().parent
 _PAGE_SIZE = 100
+_MATCH_CONTEXT_CHARS = 48
 
 
 def _sse(payload: dict[str, Any]) -> str:
@@ -49,6 +52,50 @@ def _evidence_str(loc: dict[str, Any]) -> str:
     if loc.get("char_start") is not None:
         parts.append(f"chars {loc['char_start']}–{loc.get('char_end', '?')}")
     return ", ".join(parts) or "—"
+
+
+def _reveal_matched_content(
+    config_path: str, findings_by_source: dict[str, list[dict[str, Any]]]
+) -> None:
+    """PoC / human-review only: attach the matched span (char_pre/char_match/char_post) to
+    each finding that has char offsets, re-derived LIVE from the read-only source.
+
+    Deliberately NOT persisted — nothing is written to the result rows, ledger, registry,
+    or logs (Contracts 2 & 3 keep the durable artefacts content-free). Computed at render
+    time, in-boundary, and gated by the caller (off by default). The sample is synthetic.
+    """
+    cfg = load_ws1_config(config_path)
+    reader = build_reader(cfg)
+    engine = build_extraction_engine(cfg.extract)
+    by_id = {e.source_id: e for e in reader.list_manifest()}
+    text_cache: dict[str, str | None] = {}
+
+    def _text(source_id: str) -> str | None:
+        if source_id not in text_cache:
+            entry = by_id.get(source_id)
+            try:
+                text_cache[source_id] = (
+                    engine.extract(entry, ingest(reader, entry)).text
+                    if entry is not None
+                    else None
+                )
+            except Exception:  # extraction may fail for this item — just show no snippet
+                text_cache[source_id] = None
+        return text_cache[source_id]
+
+    for source_id, items in findings_by_source.items():
+        for finding in items:
+            loc = finding.get("evidence_location") or {}
+            start, end = loc.get("char_start"), loc.get("char_end")
+            if start is None or end is None:
+                continue
+            text = _text(source_id)
+            if not text or start >= len(text):
+                continue
+            end = min(end, len(text))
+            finding["char_pre"] = text[max(0, start - _MATCH_CONTEXT_CHARS) : start]
+            finding["char_match"] = text[start:end]
+            finding["char_post"] = text[end : end + _MATCH_CONTEXT_CHARS]
 
 
 def _load_rows_findings(job: Job) -> tuple[list[Ws1Summary], list[Finding]]:
@@ -81,9 +128,14 @@ def create_app(
     config_path: str | None = None,
     registry_db: str | None = None,
     start_worker: bool = True,
+    reveal_matches: bool | None = None,
 ) -> FastAPI:
     config_path = config_path or os.environ.get("WS1_API_CONFIG", "config/ws1.yaml")
     registry_db = registry_db or os.environ.get("WS1_REGISTRY_DB", "poc/registry.db")
+    # Off by default (production-safe). Opt-in reveals the matched span in the review UI,
+    # re-derived live from the read-only source and never persisted (Contracts 2 & 3).
+    if reveal_matches is None:
+        reveal_matches = os.environ.get("WS1_SHOW_MATCHED_CONTENT") == "1"
 
     registry = JobRegistry(registry_db)
     service = JobService(config_path, registry)
@@ -191,6 +243,8 @@ def create_app(
             # (score.py); mark it so the workbook can separate it from flag-driving findings.
             dumped["routing_only"] = dumped["score_type"] == ScoreType.SIMILARITY.value
             findings_by_source.setdefault(finding.source_id, []).append(dumped)
+        if reveal_matches:
+            _reveal_matched_content(config_path, findings_by_source)
         return templates.TemplateResponse(
             request=request,
             name="results.html",
