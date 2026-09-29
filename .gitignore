@@ -39,6 +39,11 @@ truth-sets/
 *.tsv
 *.jsonl
 
+# Golden dataset — SYNTHETIC (Nemotron-PII, CC BY 4.0) + generated clean docs.
+# Intentionally tracked (Databricks-loadable); overrides the *.jsonl/*.csv rules above.
+!datasets/ws1_golden/
+!datasets/ws1_golden/**
+
 # Model weights / large artefacts
 models/
 *.gguf

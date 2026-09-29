@@ -1,0 +1,12 @@
+**Biometric Health Record Attachment**
+
+| Field                | Value                         |
+|----------------------|-------------------------------|
+| Medical Record Number| 0008925679                    |
+| Biometric Identifier | BIO-5729163843                |
+| Date                 | 2023-09-15                    |
+| Time                 | 19:23:45                      |
+| Date Time            | 2025-09-08T05:43:39           |
+| User Name            | tracy_perrodin                |
+| Unique ID            | 5f9f1b9b8c6e8b7a3d2f4b7a      |
+| Customer ID          | CUS00092413                   |

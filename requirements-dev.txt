@@ -3,4 +3,5 @@
 # Rich synthetic seed corpus generator (tests/fixtures/build_ws1_rich_sample.py):
 faker>=30       # well-formed fake PII (names, cards, IBANs, SSNs) — synthetic only
 reportlab>=4    # born-digital PDF fixtures
-pillow>=10      # scanned-image (PNG) fixtures for the OCR path
+pillow>=10      # scanned-image (PNG/JPEG) fixtures for the OCR path
+numpy>=1.26     # scan degradation (sensor noise) in the golden dataset generator

@@ -1,0 +1,45 @@
+**Tax Return Form**
+
+**Taxpayer Identification Information**
+
+Taxpayer Identification Number (TIN): 956-92-2873
+
+Full Name: Beverly Fracaro
+
+Address:
+
+Street: 204 SE 7th St
+City: Irrigon
+State: Oregon
+Postcode: 97844
+
+Social Security Number (SSN): 542-84-7406
+
+**Filing Status**
+
+[ ] Single
+[ ] Married Filing Jointly
+[ ] Married Filing Separately
+[ ] Head of Household
+[ ] Qualifying Widow(er) with Dependent Child
+
+**Income**
+
+Wages, Salaries, Tips, etc.
+
+**Adjustments to Income**
+
+**Tax and Credits**
+
+**Other Taxes**
+
+**Payments**
+
+**Sign Here**
+
+____________________________
+Beverly Fracaro
+
+**Date**
+
+____________________________
