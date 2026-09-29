@@ -1,0 +1,21 @@
+{% for e in items %}
+<tr>
+  <td class="rowsel"><input type="checkbox" class="rowcheck" value="{{ e.source_id }}" /></td>
+  <td class="mono">{{ e.source_id }}</td>
+  <td>{{ e.content_type }}</td>
+  <td>{{ e.author or "—" }}</td>
+  <td>{{ e.datetime or "—" }}</td>
+  <td>{{ e.linked_executive or "—" }}</td>
+  <td>{{ e.linked_project or "—" }}</td>
+</tr>
+{% endfor %}
+{% if oob %}
+  {% if next_offset is not none %}
+  <button id="more-btn" hx-swap-oob="true" class="btn ghost"
+          hx-get="/ws1/rows?offset={{ next_offset }}" hx-target="#rows" hx-swap="beforeend">
+    Load more
+  </button>
+  {% else %}
+  <span id="more-btn" hx-swap-oob="true" class="muted">All {{ total }} items loaded.</span>
+  {% endif %}
+{% endif %}

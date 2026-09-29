@@ -1,0 +1,51 @@
+# Dependencies
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Build / cache
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Env & secrets — never commit
+.env
+.env.*
+!.env.example
+*.local
+
+# Claude Code local overrides
+.claude/settings.local.json
+
+# Source / intermediate / output data (PII — NEVER commit)
+poc/
+out/
+data/
+.data/
+uploads/
+extracted/
+ocr/
+manifests/
+truth-sets/
+*.parquet
+*.csv
+*.tsv
+*.jsonl
+
+# Model weights / large artefacts
+models/
+*.gguf
+*.safetensors
+*.bin
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

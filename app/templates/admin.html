@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Admin · Migration monitor{% endblock %}
+{% block content %}
+  <h1>Migration monitor</h1>
+  <p class="sub">
+    Live reconciliation across every run — headless (CLI) and UI alike, from the shared
+    registry. Updates stream over SSE. Config <span class="mono">{{ config_version }}</span>.
+  </p>
+
+  <div id="admin">
+    <div class="tiles">
+      <div class="stat"><div class="n" id="m-authorised">{{ summary.authorised }}</div><div class="k">Authorised</div></div>
+      <div class="stat"><div class="n" id="m-processed">{{ summary.processed }}</div><div class="k">Processed</div></div>
+      <div class="stat"><div class="n" id="m-flagged">{{ summary.flagged }}</div><div class="k">Flagged</div></div>
+      <div class="stat"><div class="n" id="m-not_flagged">{{ summary.not_flagged }}</div><div class="k">Not flagged</div></div>
+      <div class="stat"><div class="n" id="m-unable">{{ summary.unable_to_process }}</div><div class="k">Unable</div></div>
+      <div class="stat"><div class="n" id="m-in_progress">{{ summary.in_progress }}</div><div class="k">In progress</div></div>
+      <div class="stat"><div class="n" id="m-remaining">{{ summary.remaining }}</div><div class="k">Remaining</div></div>
+      <div class="stat"><div class="n" id="m-pct">{{ summary.pct_complete }}%</div><div class="k">Complete</div></div>
+    </div>
+
+    <div style="margin:16px 0" class="bar">
+      <span id="m-bar" style="width: {{ summary.pct_complete }}%"></span>
+    </div>
+
+    <h2>Jobs</h2>
+    <table>
+      <thead>
+        <tr><th>Job ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Run ID</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="jobs-body">
+        {% for j in jobs %}
+        <tr>
+          <td class="mono">{{ j.job_id }}</td>
+          <td>{{ j.request.job_type }}</td>
+          <td><span class="chip">{{ j.status }}</span></td>
+          <td>{{ j.progress_done }} / {{ j.progress_total }}</td>
+          <td class="mono">{{ j.run_id or "—" }}</td>
+          <td>
+            <a class="btn ghost" href="/jobs/{{ j.job_id }}">results</a>
+            {% if j.status in ("queued", "running", "retrying") %}
+            <button class="danger" data-action="cancel" data-job-id="{{ j.job_id }}">cancel</button>
+            {% endif %}
+            <button class="ghost" data-action="retry-failed" data-job-id="{{ j.job_id }}">retry</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not jobs %}<p class="muted">No runs recorded yet.</p>{% endif %}
+  </div>
+{% endblock %}

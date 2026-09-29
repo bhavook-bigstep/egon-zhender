@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}WS-1 · Source browser{% endblock %}
+{% block content %}
+  <h1>Workstream 1 — run on the sample</h1>
+  <p class="sub">
+    Browse authorised items (metadata only), select rows, then run one item interactively or
+    submit a batch. Selection freezes a job manifest and pins config
+    <span class="mono">{{ config_version }}</span>.
+  </p>
+
+  {% if not inference_local %}
+  <div class="banner warn">
+    <strong>Managed inference selected.</strong> This config points at a non-local model
+    ({{ model_version }}). Egress requires <em>prior written approval</em>
+    {% if approval_written %}(recorded: approval_written = true){% else %}
+    <strong>— not yet recorded</strong>; the pipeline gate will refuse to send content{% endif %}.
+  </div>
+  {% else %}
+  <div class="banner ok">
+    In-boundary inference ({{ model_version }}). No content leaves the approved boundary.
+  </div>
+  {% endif %}
+
+  <div id="ws1" data-config-version="{{ config_version }}">
+    <div class="controls">
+      <button type="button" id="run-single">Run single (live view)</button>
+      <button type="button" id="run-batch" class="ghost">Run batch</button>
+      <span id="selcount" class="muted">0 selected</span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="rowsel"><input type="checkbox" id="select-all" /></th>
+          <th>Source ID</th><th>Type</th><th>Author</th><th>Date</th>
+          <th>Executive</th><th>Project</th>
+        </tr>
+      </thead>
+      <tbody id="rows">
+        {% include "_rows.html" %}
+      </tbody>
+    </table>
+
+    <div class="controls">
+      {% if next_offset is not none %}
+      <button id="more-btn" class="btn ghost"
+              hx-get="/ws1/rows?offset={{ next_offset }}" hx-target="#rows" hx-swap="beforeend">
+        Load more
+      </button>
+      {% else %}
+      <span id="more-btn" class="muted">All {{ total }} items loaded.</span>
+      {% endif %}
+    </div>
+
+    <p class="muted">
+      Single = interactive run you watch step by step. Batch = queued to the worker; you get a
+      notification and can follow it on the <a href="/admin">admin monitor</a>.
+    </p>
+  </div>
+{% endblock %}

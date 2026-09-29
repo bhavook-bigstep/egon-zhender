@@ -1,0 +1,98 @@
+# WS-1 versioned configuration (Contract 4). No thresholds/taxonomy live in code.
+config_version: ws1-0.1.0-poc
+seed: 1729
+
+source:
+  # Skeleton runs on the versioned synthetic fixtures (hermetic). Real controlled-
+  # sample data lives under the git-ignored poc/; production swaps backend: databricks.
+  backend: sample
+  root: tests/fixtures/ws1_sample
+  manifest: tests/fixtures/ws1_manifest.json
+
+inference:
+  provider: mock            # mock | openweight
+  model_version: mock-0
+  approval_written: false
+  is_local: true            # openweight: false for a managed endpoint (needs approval)
+  # openweight example (real path):
+  # provider: openweight
+  # model_version: qwen3.8-27b
+  # base_url: http://localhost:8000
+  # api_key_env: WS1_LLM_API_KEY
+  # Deterministic stub "semantics": a category scores high if its hint appears.
+  mock_hints:
+    financial: salary
+    government_id: passport
+    health: diagnosis
+
+# Semantic embedding screen (Phase 2). Disabled by default; when enabled it routes
+# which categories reach the LLM (data minimisation) and emits SIMILARITY findings.
+semantic:
+  enabled: false
+  model: sentence-transformers/all-MiniLM-L6-v2
+  route_threshold: 0.35
+  threshold_version: sem-0
+  # examples:
+  #   financial: ["salary and compensation package", "bank account and IBAN"]
+  #   government_id: ["passport number", "national identity document"]
+  #   health: ["medical diagnosis", "clinical condition"]
+
+ocr_gate:
+  # PoC defaults — calibrated later. (metric set: AI-generated, see plan.)
+  min_text_density: 0.15
+  min_printable_ratio: 0.85
+  max_image_coverage: 0.5
+
+taxonomy:
+  version: poc-synth-0
+  categories:
+    - financial
+    - government_id
+    - health
+
+extract:
+  engine: decode            # decode | native | docling | tika
+  # native runs in-venv (pypdf/python-docx/openpyxl) for born-digital PDF/DOCX/XLSX.
+  # docling/tika are HTTP services added with their containers in a later wave:
+  # docling_url: http://localhost:5001
+  # tika_url: http://localhost:9998
+
+detect:
+  engine: regex             # regex | presidio
+  recognisers:              # used by the regex engine
+    - rule_id: FIN-001
+      category: financial
+      pattern: 'ACCT-\d{6}'
+      reason_code: financial_account_ref
+    - rule_id: GOV-001
+      category: government_id
+      pattern: 'GOVID-[A-Z]{2}\d{6}'
+      reason_code: government_id_ref
+    - rule_id: HLTH-001
+      category: health
+      pattern: 'DIAG-[A-Z]\d{2}'
+      reason_code: health_diagnosis_code
+  # presidio engine example (real path):
+  # engine: presidio
+  # presidio_language: en
+  # presidio_score_threshold: 0.35
+  # category_map: {CREDIT_CARD: financial, US_SSN: government_id, US_PASSPORT: government_id}
+  # deterministic_entities: [CREDIT_CARD]   # checksum-validated -> deterministic
+
+scoring:
+  # LOW band = [flag_threshold, band_medium) by construction (no separate band_low).
+  flag_threshold: 40.0
+  band_high: 80.0
+  band_medium: 60.0
+  calibration:
+    # No artefact by default -> AI scores are NOT_CALIBRATED (honest for a tiny sample).
+    # Build one with: python -m pipelines.workstream1_sensitive.calibrate
+    artefact: null
+    version: cal-0
+    min_positives: 100
+    max_holdout_error: 5.0
+    method: sigmoid          # sigmoid | isotonic
+
+output:
+  result_dir: poc/out
+  format: jsonl

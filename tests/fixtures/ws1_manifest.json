@@ -1,0 +1,52 @@
+[
+  {
+    "source_id": "doc_born_001",
+    "content_type": "application/pdf",
+    "content_hash": "74f8584375fb531aee05096fb640aa687c6e938096a5f3b4b1edee34f2e04912",
+    "path": "doc_born_001.pdf",
+    "author": "analyst-a",
+    "datetime": "2026-01-15T09:30:00Z",
+    "linked_executive": "exec-001",
+    "linked_project": "proj-y"
+  },
+  {
+    "source_id": "note_001",
+    "content_type": "text/plain",
+    "content_hash": "6425fd24eac32b178ef80713cb426b33facbee1edd39fc4536eab7d68673831e",
+    "path": "note_001.txt",
+    "author": "analyst-a",
+    "datetime": "2026-01-15T09:30:00Z",
+    "linked_executive": "exec-001",
+    "linked_project": "proj-x"
+  },
+  {
+    "source_id": "note_002",
+    "content_type": "text/plain",
+    "content_hash": "2353798790e78653d35f70435d5965437e6529695cf92db558c43753490cf5a2",
+    "path": "note_002.txt",
+    "author": "analyst-b",
+    "datetime": "2026-01-15T09:30:00Z",
+    "linked_executive": "exec-001",
+    "linked_project": "proj-x"
+  },
+  {
+    "source_id": "scan_001",
+    "content_type": "image/png",
+    "content_hash": "a3f793172e6c1c4167342a8d29414265bb8fa40e16134ca8fa07b7a0a5890d1f",
+    "path": "scan_001.png",
+    "author": "analyst-c",
+    "datetime": "2026-01-15T09:30:00Z",
+    "linked_executive": "exec-001",
+    "linked_project": "proj-y"
+  },
+  {
+    "source_id": "unreadable_001",
+    "content_type": "application/octet-stream",
+    "content_hash": "332a3f666eb60e82b77dbaae0765ec04329d3cebbb9bcd837aea4aeaa6ecc2f2",
+    "path": "unreadable_001.dat",
+    "author": "analyst-c",
+    "datetime": "2026-01-15T09:30:00Z",
+    "linked_executive": "exec-001",
+    "linked_project": "proj-z"
+  }
+]

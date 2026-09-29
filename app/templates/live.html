@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}WS-1 · Live run · {{ source_id }}{% endblock %}
+{% block content %}
+  <h1>Live run — <span class="mono">{{ source_id }}</span></h1>
+  <p class="sub">
+    Watching the pipeline process one item: extract → OCR gate → detect → assess → score.
+    Stage events carry no content — item ID and outcome only.
+  </p>
+
+  <div id="live" data-source-id="{{ source_id }}">
+    <p><strong>Status:</strong> <span id="live-status">running…</span>
+       <a id="to-workbook" class="btn" style="display:none" href="#">Open workbook →</a></p>
+
+    <h2>Stage timeline</h2>
+    <ul id="timeline" class="timeline"></ul>
+
+    <h2>Result row</h2>
+    <table>
+      <thead>
+        <tr><th>Source ID</th><th>Status</th><th>Categories</th>
+            <th>Score type</th><th>Band</th><th>Score</th><th>Calibration</th>
+            <th>Exception</th><th>Reason</th></tr>
+      </thead>
+      <tbody id="findings-body"></tbody>
+    </table>
+  </div>
+
+  <p class="controls"><a class="btn ghost" href="/ws1">← Back to browser</a></p>
+{% endblock %}

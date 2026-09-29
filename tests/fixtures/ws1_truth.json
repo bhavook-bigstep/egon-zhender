@@ -1,0 +1,32 @@
+{
+  "note_001": {
+    "flag_status": "flagged",
+    "categories": [
+      "financial"
+    ],
+    "strongest_score_type": "deterministic_match"
+  },
+  "note_002": {
+    "flag_status": "not_flagged",
+    "categories": [],
+    "strongest_score_type": null
+  },
+  "doc_born_001": {
+    "flag_status": "flagged",
+    "categories": [
+      "financial"
+    ],
+    "strongest_score_type": "model_score"
+  },
+  "scan_001": {
+    "flag_status": "flagged",
+    "categories": [
+      "government_id"
+    ],
+    "strongest_score_type": "deterministic_match"
+  },
+  "unreadable_001": {
+    "flag_status": "unable_to_process",
+    "exception_code": "unsupported_type"
+  }
+}

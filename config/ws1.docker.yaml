@@ -1,0 +1,88 @@
+# WS-1 config for the Dockerised engines. Wave 1b: extraction via docling-serve.
+# Detection/LLM stay regex/mock here; later waves flip them to presidio_http / external API.
+config_version: ws1-0.1.0-docker
+seed: 1729
+
+source:
+  backend: sample
+  root: tests/fixtures/ws1_sample
+  manifest: tests/fixtures/ws1_manifest.json
+
+inference:
+  provider: mock            # default stays mock to avoid egress
+  model_version: mock-0
+  approval_written: false
+  is_local: true
+  mock_hints:
+    financial: salary
+    government_id: passport
+    health: diagnosis
+  # External API LLM (managed) — egress off-boundary, so it is approval-gated:
+  # provider: openweight
+  # model_version: <api-model-id>          # e.g. via a LiteLLM proxy → OpenAI/Bedrock
+  # base_url: http://localhost:4000/v1     # your API or LiteLLM proxy
+  # api_key_env: WS1_LLM_API_KEY           # key from env only, never in the repo
+  # is_local: false                        # managed endpoint
+  # approval_written: true                 # your written authorisation to send data
+
+semantic:
+  enabled: false
+
+extract:
+  engine: docling
+  docling_url: http://localhost:5001
+  # tika_url: http://localhost:9998        # for engine: tika (legacy .doc/.xls)
+
+ocr_gate:
+  min_text_density: 0.15
+  min_printable_ratio: 0.85
+  max_image_coverage: 0.5
+
+ocr:
+  provider: stub            # stub | docling (docling reuses the extract service for OCR)
+  # provider: docling
+  # url: http://localhost:5001
+
+taxonomy:
+  version: poc-synth-0
+  categories:
+    - financial
+    - government_id
+    - health
+
+detect:
+  engine: regex             # regex | presidio_http
+  # Presidio detection via the container (real PII entities):
+  # engine: presidio_http
+  # presidio_url: http://localhost:3001
+  # presidio_score_threshold: 0.35
+  # category_map: {CREDIT_CARD: financial, US_SSN: government_id, US_PASSPORT: government_id}
+  # deterministic_entities: [CREDIT_CARD]
+  recognisers:
+    - rule_id: FIN-001
+      category: financial
+      pattern: 'ACCT-\d{6}'
+      reason_code: financial_account_ref
+    - rule_id: GOV-001
+      category: government_id
+      pattern: 'GOVID-[A-Z]{2}\d{6}'
+      reason_code: government_id_ref
+    - rule_id: HLTH-001
+      category: health
+      pattern: 'DIAG-[A-Z]\d{2}'
+      reason_code: health_diagnosis_code
+
+scoring:
+  flag_threshold: 40.0
+  band_high: 80.0
+  band_medium: 60.0
+  calibration:
+    artefact: null
+    version: cal-0
+    min_positives: 100
+    max_holdout_error: 5.0
+    method: sigmoid
+
+output:
+  result_dir: poc/out-docker
+  format: jsonl

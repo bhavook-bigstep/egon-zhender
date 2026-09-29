@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}WS-1 · Results · {{ job.job_id }}{% endblock %}
+{% block content %}
+  {% if not job %}
+  <h1>Results workbook</h1>
+  <div class="banner warn">Job not found. It may have expired or never existed.</div>
+  <p class="controls"><a class="btn ghost" href="/admin">← Admin monitor</a></p>
+  {% else %}
+  <h1>Results workbook</h1>
+  <p class="sub">
+    Job <span class="mono">{{ job.job_id }}</span> · run <span class="mono">{{ job.run_id or "—" }}</span>
+    · config <span class="mono">{{ job.request.config_version }}</span> · type {{ job.request.job_type }}
+    · status <span class="chip">{{ job.status }}</span>
+  </p>
+
+  {% if reconcile %}
+  <div class="banner {{ 'ok' if reconcile.reconciled else 'warn' }}">
+    {% if reconcile.reconciled %}Reconciled ✓ {% else %}Not reconciled — review counts. {% endif %}
+    input = {{ reconcile.input_count }} ·
+    flagged = {{ reconcile.flagged }} ·
+    not_flagged = {{ reconcile.not_flagged }} ·
+    unable_to_process = {{ reconcile.unable_to_process }} ·
+    one_row_per_input = {{ reconcile.one_row_per_input }}
+  </div>
+  {% endif %}
+
+  {% if job.exception %}
+  <div class="banner warn"><strong>Run exception:</strong> {{ job.exception }}</div>
+  {% endif %}
+
+  <div class="controls">
+    <label>Filter status
+      <select id="status-filter">
+        <option value="">all</option>
+        <option value="flagged">flagged</option>
+        <option value="not_flagged">not_flagged</option>
+        <option value="unable_to_process">unable_to_process</option>
+      </select>
+    </label>
+    <span class="muted">{{ rows|length }} rows</span>
+  </div>
+
+  {% if rows %}
+  <table id="workbook">
+    <thead>
+      <tr>
+        <th>Source ID</th><th>Type</th><th>Status</th><th>Categories</th>
+        <th>Strongest</th><th>Calibration</th><th>Exception</th><th>Findings</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr data-status="{{ r.flag_status }}">
+        <td class="mono">{{ r.source_id }}</td>
+        <td>{{ r.content_type }}</td>
+        <td><span class="chip {{ r.flag_status }}">{{ r.flag_status }}</span></td>
+        <td>{{ r.sensitivity_categories|join(", ") or "—" }}</td>
+        <td>
+          {% if r.strongest_score_type %}
+            <span class="chip {{ r.strongest_score_type }}">{{ r.strongest_score_type }}</span>
+            {% if r.strongest_band %}· {{ r.strongest_band }}{% endif %}
+            {% if r.strongest_score is not none %}· {{ "%.1f"|format(r.strongest_score) }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ r.calibration_status }}</td>
+        <td>{{ r.exception_code or "—" }}</td>
+        <td>
+          {% set items = findings_by_source.get(r.source_id, []) %}
+          {% if items %}
+          <details>
+            <summary>{{ items|length }} finding(s)</summary>
+            <table>
+              <thead><tr><th>Category</th><th>Signal</th><th>Reason</th><th>Score type</th>
+                         <th>Band</th><th>Score</th><th>Threshold</th>
+                         <th>Evidence location</th><th>Rule / detector</th></tr></thead>
+              <tbody>
+                {% for f in items %}
+                <tr>
+                  <td>{{ f.category }}</td>
+                  <td>
+                    {% if f.routing_only %}<span class="chip similarity">routing only</span>
+                    {% else %}<span class="chip">flag-driving</span>{% endif %}
+                  </td>
+                  <td>{{ f.reason_text }}</td>
+                  <td><span class="chip {{ f.score_type }}">{{ f.score_type }}</span></td>
+                  <td>{{ f.band or "—" }}</td>
+                  <td>
+                    {% if f.score is none %}—
+                    {% elif f.routing_only %}{{ "%.2f"|format(f.score) }} <span class="muted">(cosine 0–1)</span>
+                    {% else %}{{ "%.1f"|format(f.score) }} <span class="muted">(0–100)</span>{% endif %}
+                  </td>
+                  <td class="mono">{{ f.threshold_version or "—" }}</td>
+                  <td class="mono">{{ f.evidence_str }}</td>
+                  <td class="mono">{{ f.rule_id or f.detector_version }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No rows yet — the job may still be queued or running.
+     Follow it on the <a href="/admin">admin monitor</a>.</p>
+  {% endif %}
+
+  <p class="controls" style="margin-top:20px">
+    <a class="btn ghost" href="/ws1">← Browser</a>
+    <a class="btn ghost" href="/admin">Admin monitor →</a>
+  </p>
+
+  <script>
+    (function () {
+      var sel = document.getElementById("status-filter");
+      if (!sel) return;
+      sel.addEventListener("change", function () {
+        var want = sel.value;
+        document.querySelectorAll("#workbook tbody tr").forEach(function (tr) {
+          tr.style.display = !want || tr.dataset.status === want ? "" : "none";
+        });
+      });
+    })();
+  </script>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+# Optional heavy dependencies for the REAL Phase 2 engines. Not needed for the
+# skeleton path (engine: regex, provider: mock, calibration method: identity) or for
+# the hermetic test suite, which injects fakes. Install only to run the real engines:
+#   pip install -r requirements-ml.txt
+#   python -m spacy download en_core_web_lg   # Presidio's default NER model
+
+presidio-analyzer>=2.2      # detect engine: presidio
+sentence-transformers>=3    # semantic screen embeddings (SBERT)
+scikit-learn>=1.4           # calibration: sigmoid (Platt) / isotonic
+numpy>=1.26                 # calibration fitting
+httpx>=0.27                 # openweight provider: OpenAI-compatible client

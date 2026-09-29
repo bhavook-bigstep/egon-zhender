@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}WS-1 · Prince Houston PoC{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css" />
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Prince Houston <span>· Data Cleansing PoC</span></a>
+    <nav>
+      <a href="/ws1">WS-1</a>
+      <a href="/admin">Admin</a>
+    </nav>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <footer class="footer">
+    Metadata-only surface · source is read-only · no document content or raw identifiers
+    leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
+  </footer>
+</body>
+</html>

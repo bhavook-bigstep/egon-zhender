@@ -1,0 +1,3 @@
+# Dev/test-only extras (not needed at runtime).
+-r requirements.txt
+reportlab>=4    # generates the synthetic PDF test fixture (tests importorskip it)
