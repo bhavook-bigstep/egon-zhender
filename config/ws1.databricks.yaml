@@ -129,3 +129,11 @@ scoring:
 output:
   result_dir: poc/out-databricks
   format: jsonl
+
+batch:
+  # Worker threads per batch run. The pipeline is I/O-bound (Databricks download +
+  # docling/presidio/LLM over HTTP), so threads overlap the waits; a CLI
+  # --max-concurrency overrides. Not result-affecting (output is sorted before write).
+  # Mind the managed-LLM rate limit when raising this for the demo config.
+  max_concurrency: 4
+  batch_size: 500        # items per checkpoint (resume granularity)

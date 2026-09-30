@@ -49,7 +49,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the WS-1 sensitive-data pipeline.")
     parser.add_argument("--config", default="config/ws1.yaml")
     parser.add_argument("--source-id", default=None, help="Run a single job for one id.")
-    parser.add_argument("--max-concurrency", type=int, default=1)
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=None,
+        help="Batch worker threads; default = config batch.max_concurrency.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--registry",

@@ -4,17 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
+from libs.config import load_ws1_config
 from libs.jobs import JobRequest, JobStatus, JobType
+from pipelines.workstream1_sensitive import job_runner
 from pipelines.workstream1_sensitive.job_runner import run_batch
+from pipelines.workstream1_sensitive.runner import build_context
 
 CONFIG_VERSION = "ws1-0.1.0-poc"
 
 
-def _config_at(tmp_path: Path, subdir: str) -> str:
+def _config_at(tmp_path: Path, subdir: str, batch: dict[str, int] | None = None) -> str:
     base = yaml.safe_load(Path("config/ws1.yaml").read_text(encoding="utf-8"))
     base["output"]["result_dir"] = str(tmp_path / subdir)
+    if batch is not None:
+        base["batch"] = batch
     cfg_path = tmp_path / f"ws1-{subdir}.yaml"
     cfg_path.write_text(yaml.safe_dump(base), encoding="utf-8")
     return str(cfg_path)
@@ -53,6 +59,43 @@ def test_batch_concurrency_is_deterministic(tmp_path: Path) -> None:
     # Output is sorted, so bytes are identical regardless of completion order.
     assert Path(seq.summary_path).read_bytes() == Path(par.summary_path).read_bytes()
     assert Path(seq.findings_path).read_bytes() == Path(par.findings_path).read_bytes()
+
+
+def test_batch_concurrency_defaults_to_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request that leaves max_concurrency unset falls back to config batch.max_concurrency
+    (config-driven, no magic literal); an explicit value still overrides it."""
+    captured: dict[str, int] = {}
+    real_pool = job_runner.ThreadPoolExecutor
+
+    def spy_pool(max_workers: int) -> object:
+        captured["workers"] = max_workers
+        return real_pool(max_workers=max_workers)
+
+    monkeypatch.setattr(job_runner, "ThreadPoolExecutor", spy_pool)
+
+    cfg_path = _config_at(tmp_path, "cfgconc", batch={"max_concurrency": 3, "batch_size": 500})
+    run_batch(cfg_path, _request(source_ids=None))  # no per-request override
+    assert captured["workers"] == 3  # from config
+
+    run_batch(cfg_path, _request(source_ids=None, max_concurrency=1))  # explicit override
+    assert captured["workers"] == 1
+
+
+def test_batch_reuses_passed_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When a warm context is supplied, run_batch does NOT rebuild it (no model reload /
+    manifest re-download per queued job)."""
+    cfg_path = _config_at(tmp_path, "warm")
+    ctx = build_context(load_ws1_config(cfg_path))
+
+    def boom(_cfg: object) -> object:  # must not be called on the warm path
+        raise AssertionError("build_context should not be called when context= is passed")
+
+    monkeypatch.setattr(job_runner, "build_context", boom)
+    result = run_batch(cfg_path, _request(source_ids=None), context=ctx)
+    assert result.status is JobStatus.COMPLETED
+    assert len(result.item_statuses) == 5
 
 
 def test_batch_cancel_launches_no_new_items(tmp_path: Path) -> None:

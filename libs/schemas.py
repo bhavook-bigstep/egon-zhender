@@ -288,6 +288,18 @@ class OutputConfig(BaseModel):
     format: str = "jsonl"
 
 
+class BatchConfig(BaseModel):
+    """Operational knobs for batch runs. NOT result-affecting: output is sorted by
+    source_id before writing, so the same manifest + config + seed yields identical
+    bytes regardless of concurrency (Contract 4). Kept out of the run_id for the same
+    reason. A per-request value (CLI --max-concurrency) overrides these defaults."""
+
+    # I/O-bound pipeline (LLM / docling / presidio / Databricks over HTTP), so threads
+    # overlap the waits; a modest default avoids swamping the shared LLM/service caps.
+    max_concurrency: int = 4
+    batch_size: int = 500  # items per checkpoint (resume granularity)
+
+
 class Ws1Config(BaseModel):
     config_version: str
     seed: int
@@ -299,6 +311,7 @@ class Ws1Config(BaseModel):
     detect: DetectConfig
     scoring: ScoringConfig
     output: OutputConfig
+    batch: BatchConfig = Field(default_factory=BatchConfig)
     extract: ExtractConfig = Field(default_factory=ExtractConfig)
     semantic: SemanticConfig = Field(default_factory=SemanticConfig)
     # DEMO/synthetic only. When true, the review UI reveals the matched value (re-derived

@@ -96,3 +96,10 @@ scoring:
 output:
   result_dir: poc/out
   format: jsonl
+
+batch:
+  # Worker threads per batch run. The pipeline is I/O-bound (extract/OCR/LLM over
+  # HTTP), so threads overlap the waits; an explicit CLI --max-concurrency overrides.
+  # Not result-affecting (output is sorted before writing) — safe to tune per host.
+  max_concurrency: 4
+  batch_size: 500        # items per checkpoint (resume granularity)

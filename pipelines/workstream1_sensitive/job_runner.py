@@ -207,15 +207,22 @@ def run_batch(
     request: JobRequest,
     on_progress: Callable[[str, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    context: Ws1Context | None = None,
 ) -> JobResult:
     """Run a batch selection with bounded concurrency, checkpointing, and resume.
 
     `on_progress(source_id, flag_status)` fires as each item finishes; `should_cancel()`
     is checked between items — when true, no new items are launched (cooperative cancel),
     and the run reconciles over what was processed.
+
+    `context` reuses an already-warm `Ws1Context` (SBERT loaded, manifest cached) so a
+    queued batch does not re-pay the model load + manifest download on every run; the
+    per-item work carries its own local ledger, so the shared read-only context is safe
+    across the worker pool. When omitted (e.g. the CLI one-shot) the context is built.
     """
     started = _now()
-    cfg = load_ws1_config(config_path)
+    ctx = context or build_context(load_ws1_config(config_path))
+    cfg = ctx.cfg
     if request.config_version != cfg.config_version:
         return _failed(
             request.job_type,
@@ -225,7 +232,6 @@ def run_batch(
             started,
         )
 
-    ctx = build_context(cfg)
     all_entries = ctx.reader.list_manifest()
     by_id = {entry.source_id: entry for entry in all_entries}
     if request.source_ids is None:
@@ -275,7 +281,15 @@ def run_batch(
     local_by_id: dict[str, _LocalResult] = {}
     completed = 0
     cancelled = False
-    workers = max(1, request.max_concurrency)
+    # Config-driven defaults; an explicit per-request value overrides them.
+    concurrency = (
+        request.max_concurrency if request.max_concurrency is not None
+        else cfg.batch.max_concurrency
+    )
+    checkpoint_every = (
+        request.batch_size if request.batch_size is not None else cfg.batch.batch_size
+    )
+    workers = max(1, concurrency)
     entries_iter = iter(to_process)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         pending = set()
@@ -292,7 +306,7 @@ def run_batch(
                 completed += 1
                 if on_progress is not None:
                     on_progress(summary.source_id, summary.flag_status.value)
-                if completed % request.batch_size == 0:  # checkpoint (resumable)
+                if completed % checkpoint_every == 0:  # checkpoint (resumable)
                     cp_s, cp_f, cp_l = _assemble(
                         resumed_summaries, resumed_findings, resumed_finals,
                         local_by_id, run_id, cfg.config_version,

@@ -139,7 +139,11 @@ class JobService:
             return bool(current and current.cancel_requested)
 
         result = run_batch(
-            self._config_path, job.request, on_progress=on_progress, should_cancel=should_cancel
+            self._config_path,
+            job.request,
+            on_progress=on_progress,
+            should_cancel=should_cancel,
+            context=self.context(),  # warm: no per-job model rebuild / manifest re-download
         )
         current = self._registry.get(job.job_id) or job
         self._apply_result(current, result)

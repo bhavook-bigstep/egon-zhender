@@ -38,9 +38,11 @@ class JobRequest(BaseModel):
     job_type: JobType
     config_version: str  # must match the loaded config (reproducibility guard)
     source_ids: list[str] | None = None  # None ⇒ the whole frozen manifest
-    # batch-only execution hints (ignored for SINGLE):
-    max_concurrency: int = 1
-    batch_size: int = 500
+    # batch-only execution hints (ignored for SINGLE). None ⇒ fall back to the
+    # versioned config's `batch` defaults (config-driven, not a magic literal);
+    # an explicit value (e.g. CLI --max-concurrency) overrides it.
+    max_concurrency: int | None = None
+    batch_size: int | None = None
     resume: bool = False
 
 
