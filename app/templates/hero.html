@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prince Houston · Data Cleansing PoC</title>
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_ver }}" />
+</head>
+<body class="landing">
+  <header class="topnav" aria-label="Primary">
+    <a class="topnav-brand" href="/" aria-label="Egon Zehnder — home">{% include "_logo.html" %}</a>
+  </header>
+
+  <main class="landing-main">
+    <section class="hero">
+      <span class="eyebrow">Egon Zehnder · Prince Houston</span>
+      <h1 class="hero-title">Legacy Data<br />Cleansing</h1>
+      <div class="hero-rule"></div>
+      <p class="hero-lead"><span class="mono">EZ-PH-DC-2026-01</span> — Proof of Concept</p>
+    </section>
+
+    <div class="grid entry">
+      <a class="card tile" href="/run">
+        <span class="tile-no">01</span>
+        <h3>Workstream 1</h3>
+        <span class="tile-tag">Sensitive-data identification</span>
+        <p class="tile-desc">
+          Flag file notes &amp; documents against the approved taxonomy — one
+          explainable, scored row per item, evidence by location.
+        </p>
+        <span class="tile-go">Open tool →</span>
+      </a>
+
+      <div class="card tile disabled" aria-disabled="true">
+        <span class="tile-no">02</span>
+        <h3>Workstream 2</h3>
+        <span class="tile-tag">People-record matching</span>
+        <p class="tile-desc">
+          Match Prince Houston people to the Zendai snapshot — deterministic keys
+          plus Splink probabilistic linkage, each match rated and traceable.
+        </p>
+        <span class="chip">Coming soon</span>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer landing-footer">
+    Metadata-only surface · source is read-only · no document content or raw identifiers
+    leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
+  </footer>
+</body>
+</html>

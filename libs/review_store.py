@@ -40,6 +40,7 @@ class ReviewStore:
             CREATE TABLE IF NOT EXISTS reviews (
                 source_id TEXT PRIMARY KEY,
                 job_id TEXT,
+                run_id TEXT,
                 status TEXT,
                 reviewer TEXT,
                 rationale TEXT,
@@ -48,6 +49,12 @@ class ReviewStore:
             )
             """
         )
+        # A decision is valid only for the version (run_id) it was made against; the
+        # reader reverts it to pending when a newer job brings a different run_id for
+        # that record. Add the column to DBs created before run_id tracking existed.
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(reviews)")}
+        if "run_id" not in cols:
+            self._conn.execute("ALTER TABLE reviews ADD COLUMN run_id TEXT")
         self._conn.execute(
             """
             CREATE TABLE IF NOT EXISTS review_events (
@@ -73,12 +80,15 @@ class ReviewStore:
         reviewer: str,
         rationale: str = "",
         calibrated_score: float | None = None,
+        run_id: str | None = None,
     ) -> dict:
         """Upsert the current review row and append one audit event; return the row.
 
-        `status` must be one of VALID_STATUSES (else ValueError). Every call appends a
-        row to `review_events` (append-only trail), so two decisions on the same
-        source_id leave 2 events but 1 current `reviews` row (the latest).
+        `status` must be one of VALID_STATUSES (else ValueError). `run_id` records which
+        version of the record was reviewed, so a later run with a different run_id reverts
+        the decision to pending (the reader derives this). Every call appends a row to
+        `review_events` (append-only trail), so two decisions on the same source_id leave
+        2 events but 1 current `reviews` row (the latest).
         """
         if status not in VALID_STATUSES:
             raise ValueError(
@@ -87,13 +97,14 @@ class ReviewStore:
         decided_at = _now()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO reviews (source_id, job_id, status, reviewer, rationale, "
-                "calibrated_score, decided_at) VALUES (?,?,?,?,?,?,?) "
+                "INSERT INTO reviews (source_id, job_id, run_id, status, reviewer, rationale, "
+                "calibrated_score, decided_at) VALUES (?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(source_id) DO UPDATE SET "
-                "job_id=excluded.job_id, status=excluded.status, reviewer=excluded.reviewer, "
-                "rationale=excluded.rationale, calibrated_score=excluded.calibrated_score, "
-                "decided_at=excluded.decided_at",
-                (source_id, job_id, status, reviewer, rationale, calibrated_score, decided_at),
+                "job_id=excluded.job_id, run_id=excluded.run_id, status=excluded.status, "
+                "reviewer=excluded.reviewer, rationale=excluded.rationale, "
+                "calibrated_score=excluded.calibrated_score, decided_at=excluded.decided_at",
+                (source_id, job_id, run_id, status, reviewer, rationale,
+                 calibrated_score, decided_at),
             )
             self._conn.execute(
                 "INSERT INTO review_events (source_id, job_id, status, reviewer, rationale, "

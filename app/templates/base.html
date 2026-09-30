@@ -8,16 +8,11 @@
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/app.js?v={{ asset_ver }}" defer></script>
 </head>
-<body>
-  <aside class="sidenav" id="sidenav">
-    {% include "_sidebar.html" %}
-  </aside>
-  <div class="scrim" id="nav-scrim" hidden></div>
-
-  <div class="app-main">
-    <header class="topbar">
-      <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Menu">≡</button>
-      <span class="topbar-title">{{ page_title | default("", true) }}</span>
+<body class="console">
+  <header class="topnav">
+    <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Menu">≡</button>
+    <a class="topnav-brand" href="/" aria-label="Egon Zehnder — home">{% include "_logo.html" %}</a>
+    <div class="topnav-util">
       <div class="notif-menu">
         <button type="button" id="notif-btn" class="nav-btn" aria-label="Jobs">
           Jobs <span id="notif-badge" class="badge" hidden></span>
@@ -30,16 +25,25 @@
           <div id="notif-list" class="notif-list"></div>
         </div>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <main>
-      {% block content %}{% endblock %}
-    </main>
+  <div class="shell">
+    <aside class="sidenav" id="sidenav">
+      {% include "_sidebar.html" %}
+    </aside>
+    <div class="scrim" id="nav-scrim" hidden></div>
 
-    <footer class="footer">
-      Metadata-only surface · source is read-only · no document content or raw identifiers
-      leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
-    </footer>
+    <div class="app-main">
+      <main>
+        {% block content %}{% endblock %}
+      </main>
+
+      <footer class="footer">
+        Metadata-only surface · source is read-only · no document content or raw identifiers
+        leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
+      </footer>
+    </div>
   </div>
 
   <div id="toasts" aria-live="polite"></div>

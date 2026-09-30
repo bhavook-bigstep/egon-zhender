@@ -38,10 +38,22 @@ def _poll(client: TestClient, job_id: str, timeout: float = 15.0) -> dict:
     raise AssertionError("job did not finish in time")
 
 
+def test_home_is_landing_hero(client: TestClient) -> None:
+    """/ is the landing hero: two workstream tools + a top navbar; WS-1 opens /run."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert 'class="topnav"' in r.text  # reintroduced top navbar
+    assert "Workstream 1" in r.text and "Workstream 2" in r.text
+    assert 'href="/run"' in r.text  # WS-1 tool opens the console
+    assert 'class="sidenav"' not in r.text  # standalone landing, not the console shell
+
+
 def test_run_page_renders_in_console_shell(client: TestClient) -> None:
-    assert client.get("/", follow_redirects=False).status_code == 307  # / → /run
     r = client.get("/run")
     assert r.status_code == 200
+    assert 'class="topnav"' in r.text  # full-width navbar above the shell
+    assert 'class="ez-logo"' in r.text  # navbar carries the Egon Zehnder logo
+    assert 'class="shell"' in r.text  # sidebar + main sit BELOW the navbar
     assert 'class="sidenav"' in r.text  # console shell sidebar
     assert 'href="/records"' in r.text  # a sidebar section link
     assert 'id="rows"' in r.text  # the source browser
@@ -84,6 +96,22 @@ def test_jobs_page_renders(client: TestClient) -> None:
     assert "Authorised" in r.text
     assert 'id="jobs-body"' in r.text  # jobs monitor table
     assert 'href="/records"' in r.text  # sidebar section link
+
+
+def test_jobs_page_has_results_overlay(client: TestClient) -> None:
+    """A job's results open in an overlay on the Jobs page (no navigation to Records)."""
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    assert 'id="job-dialog"' in r.text  # the results overlay
+    assert 'id="job-dialog-id"' in r.text
+    assert 'id="record-dialog"' in r.text  # per-record detail, stacked above
+    assert 'id="job-records-body"' in r.text  # scoped, read-only results table
+    # approval/adjudication lives only on the Records hub, not in the jobs overlay
+    assert 'id="records-review-filter"' not in r.text
+    assert "Adjudicate" not in r.text
+    # still metadata-only — the overlay scaffold leaks no content
+    for token in SENSITIVE_TOKENS:
+        assert token not in r.text
 
 
 def test_admin_workbook_page_renders(client: TestClient) -> None:
@@ -498,6 +526,47 @@ def test_review_adjudication_flow(client: TestClient) -> None:
     assert "review_status" in exp.text and "rationale" in exp.text and "looks correct" in exp.text
     for token in SENSITIVE_TOKENS:
         assert token not in exp.text  # reviewer text only, no source content
+
+
+def test_review_reverts_to_pending_on_new_version(client: TestClient) -> None:
+    """An approval is valid for the version (run_id) it was made against; a later job that
+    brings a different run_id for that record reverts the decision to pending."""
+    # Version 1: a job over just note_001 → its own run_id.
+    a = client.post(
+        "/api/jobs",
+        json={"job_type": "batch", "config_version": CONFIG_VERSION, "source_ids": ["note_001"]},
+    ).json()
+    _poll(client, a["job_id"])
+    rec_a = {x["source_id"]: x for x in client.get("/api/admin/records").json()["records"]}[
+        "note_001"
+    ]
+    run_a = rec_a["run_id"]
+
+    # Approve that version (run_id recorded with the decision).
+    ok = client.post(
+        "/api/admin/reviews",
+        json={"source_id": "note_001", "job_id": rec_a["job_id"], "run_id": run_a,
+              "status": "accepted", "rationale": "ok for v1"},
+    )
+    assert ok.status_code == 200
+    merged = {x["source_id"]: x for x in client.get("/api/admin/records").json()["records"]}
+    assert merged["note_001"]["review_status"] == "accepted"
+    assert merged["note_001"]["review_superseded"] is False
+
+    # Version 2: a whole-manifest job → note_001 gets a DIFFERENT run_id (selection differs),
+    # and this newer job wins in latest-per-record.
+    b = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, b["job_id"])
+    latest = {x["source_id"]: x for x in client.get("/api/admin/records").json()["records"]}[
+        "note_001"
+    ]
+    assert latest["run_id"] != run_a  # a genuinely new version
+    assert latest["review_status"] == "pending"  # approval reverted
+    assert latest["review_superseded"] is True
+    # The prior decision is still in the append-only audit trail.
+    assert client.get("/api/admin/reviews").json()["reviews"]["note_001"]["status"] == "accepted"
 
 
 def test_run_page_controls(client: TestClient) -> None:

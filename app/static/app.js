@@ -708,7 +708,8 @@ function initAdmin() {
     }
     renderRecords(data.records || []);
   }
-  // Only the Workbook sub-page has the records table.
+  // Only the Records hub has a records table (#records-body) and auto-polls it. The Jobs
+  // page's results overlay uses its own #job-records-body, filled on demand per job.
   const onWorkbook = !!document.getElementById("records-body");
   if (onWorkbook) {
     refreshRecords();
@@ -736,6 +737,12 @@ function initAdmin() {
     setInterval(refreshEval, 5000);
   }
 
+  // Open a job's produced results in an overlay on the Jobs page (no navigation away).
+  root.addEventListener("click", (e) => {
+    const rbtn = e.target.closest("button[data-job-results]");
+    if (rbtn) openJobDialog(rbtn.dataset.jobResults);
+  });
+
   root.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
@@ -750,6 +757,110 @@ function initAdmin() {
       toast(action + " failed: " + err);
     }
   });
+}
+
+// The Jobs results overlay: a READ-ONLY view of the rows one run produced (scoped,
+// content-free), with per-record detail. No adjudication here — approval lives only on
+// the Records hub, over the latest version of each record.
+let _jobRecords = [];
+let _jobRecordsJob = "";
+let _jobRecordsPage = 1;
+let _jobRecordsBound = false;
+async function openJobDialog(jobId) {
+  const dlg = document.getElementById("job-dialog");
+  if (!dlg || !jobId) return;
+  _jobRecordsJob = jobId;
+  const idLabel = document.getElementById("job-dialog-id");
+  if (idLabel) idLabel.textContent = jobId;
+  if (!_jobRecordsBound) {
+    _jobRecordsBound = true;
+    const sortEl = document.getElementById("job-records-sort");
+    if (sortEl)
+      sortEl.addEventListener("change", () => {
+        _jobRecordsPage = 1;
+        applyJobRecordsView();
+      });
+    const body = document.getElementById("job-records-body");
+    if (body)
+      body.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-details]");
+        if (btn) openRecordDrawer(btn.dataset.details, btn.dataset.job);
+      });
+  }
+  _jobRecords = [];
+  _jobRecordsPage = 1;
+  applyJobRecordsView();
+  const count = document.getElementById("job-records-count");
+  if (count) count.textContent = "loading…";
+  if (typeof dlg.showModal === "function") dlg.showModal();
+
+  let data;
+  try {
+    data = await (
+      await fetch("/api/admin/records?job=" + encodeURIComponent(jobId))
+    ).json();
+  } catch (e) {
+    if (count) count.textContent = "could not load this run's records";
+    return;
+  }
+  _jobRecords = data.records || [];
+  applyJobRecordsView();
+}
+function applyJobRecordsView() {
+  const body = document.getElementById("job-records-body");
+  if (!body) return;
+  const sortEl = document.getElementById("job-records-sort");
+  const sortBy = sortEl ? sortEl.value : "uncertainty";
+  let rows = _jobRecords.slice();
+  if (sortBy === "uncertainty") {
+    const conf = (r) => (r.strongest_score == null ? Infinity : Number(r.strongest_score));
+    rows.sort((a, b) => conf(a) - conf(b));
+  } else {
+    rows.sort((a, b) => String(a.source_id).localeCompare(String(b.source_id)));
+  }
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_jobRecordsPage > pages) _jobRecordsPage = pages;
+  const pageRows = rows.slice((_jobRecordsPage - 1) * PAGE_SIZE, _jobRecordsPage * PAGE_SIZE);
+  body.textContent = "";
+  const empty = document.getElementById("job-records-empty");
+  if (empty) empty.hidden = _jobRecords.length > 0;
+  const count = document.getElementById("job-records-count");
+  if (count) count.textContent = total + " record" + (total === 1 ? "" : "s");
+  pageRows.forEach((r) => body.appendChild(jobRecordRow(r)));
+  renderPager(document.getElementById("job-records-pager"), _jobRecordsPage, total, (p) => {
+    _jobRecordsPage = p;
+    applyJobRecordsView();
+  });
+}
+function jobRecordRow(r) {
+  const tr = document.createElement("tr");
+  tr.appendChild(cell(r.source_id, "mono"));
+  tr.appendChild(cell(r.content_type));
+  tr.appendChild(chipCell(r.flag_status, r.flag_status));
+  tr.appendChild(cell((r.sensitivity_categories || []).join(", ")));
+  // Strongest: stack score_type / band / score on their own lines so the column stays narrow.
+  const strongTd = document.createElement("td");
+  strongTd.className = "strong-cell";
+  const parts = [r.strongest_score_type || "—"];
+  if (r.strongest_band) parts.push(r.strongest_band);
+  if (r.strongest_score != null) parts.push(Number(r.strongest_score).toFixed(1));
+  parts.forEach((p) => {
+    const line = document.createElement("div");
+    line.textContent = p;
+    strongTd.appendChild(line);
+  });
+  tr.appendChild(strongTd);
+  tr.appendChild(cell(r.calibration_status));
+  const td = document.createElement("td");
+  const btn = document.createElement("button");
+  btn.className = "ghost";
+  btn.textContent = "Details";
+  btn.dataset.details = r.source_id;
+  btn.dataset.job = r.job_id || _jobRecordsJob;
+  td.appendChild(btn);
+  tr.appendChild(td);
+  return tr;
 }
 
 let _recordsCache = [];
@@ -937,6 +1048,7 @@ function recordRow(r) {
     b.dataset.review = st;
     b.dataset.src = r.source_id;
     b.dataset.job = r.job_id || "";
+    b.dataset.run = r.run_id || "";  // ties the decision to the reviewed version
     adjBtns.appendChild(b);
   });
   adj.appendChild(adjBtns);
@@ -964,6 +1076,7 @@ async function onAdjudicate(e) {
       body: JSON.stringify({
         source_id: btn.dataset.src,
         job_id: btn.dataset.job,
+        run_id: btn.dataset.run || "",
         status: btn.dataset.review,
         rationale: cellRat ? cellRat.value : "",
       }),
@@ -1134,11 +1247,11 @@ function drawJobs() {
     tr.appendChild(cell(j.run_id, "mono"));
 
     const actions = document.createElement("td");
-    const link = document.createElement("a");
-    link.className = "btn ghost";
-    link.href = "/jobs/" + encodeURIComponent(j.job_id);
-    link.textContent = "results";
-    actions.appendChild(link);
+    const results = document.createElement("button");
+    results.className = "btn ghost";
+    results.textContent = "results";
+    results.dataset.jobResults = j.job_id;  // opens the results overlay (no navigation)
+    actions.appendChild(results);
     actions.appendChild(document.createTextNode(" "));
     if (active) {
       actions.appendChild(actionButton("cancel", "cancel", j.job_id, "danger"));

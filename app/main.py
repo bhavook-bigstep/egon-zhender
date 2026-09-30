@@ -224,14 +224,24 @@ def create_app(
     worker = Worker(service, registry) if start_worker else None
 
     def _attach_reviews(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Merge each record's current review decision (pending when none)."""
+        """Merge each record's current review decision (pending when none).
+
+        A decision is valid only for the version (run_id) it was made against. When a
+        newer job brings a different run_id for that record, the decision is superseded
+        and reverts to pending here — the reviewer must re-confirm the new output. The
+        prior decision stays in the append-only `review_events` trail (never lost).
+        """
         review_by_id = reviews.all()
         for row in records:
             decision = review_by_id.get(row["source_id"])
-            row["review_status"] = decision["status"] if decision else "pending"
-            row["reviewer"] = decision["reviewer"] if decision else None
-            row["rationale"] = decision["rationale"] if decision else None
-            row["decided_at"] = decision["decided_at"] if decision else None
+            reviewed_run = decision.get("run_id") if decision else None
+            superseded = bool(decision and reviewed_run and reviewed_run != row.get("run_id"))
+            live = decision if (decision and not superseded) else None
+            row["review_status"] = live["status"] if live else "pending"
+            row["reviewer"] = live["reviewer"] if live else None
+            row["rationale"] = live["rationale"] if live else None
+            row["decided_at"] = live["decided_at"] if live else None
+            row["review_superseded"] = superseded
         return records
 
     def _records_with_reviews() -> list[dict[str, Any]]:
@@ -324,9 +334,11 @@ def create_app(
 
     # --- pages (server-rendered; UI is a client of the same API) ---
 
-    @app.get("/")
-    def root_redirect() -> Any:
-        return RedirectResponse("/run", status_code=307)
+    @app.get("/", response_class=HTMLResponse)
+    def page_home(request: Request) -> Any:
+        # Landing hero: the two workstream tools. WS-1 opens the console (/run);
+        # WS-2 (people-record matching) is a placeholder until scaffolded.
+        return templates.TemplateResponse(request=request, name="hero.html", context={})
 
     @app.get("/run", response_class=HTMLResponse)
     def page_run(request: Request) -> Any:
@@ -370,12 +382,14 @@ def create_app(
                 "jobs": jobs,
                 "active": "jobs",
                 "page_title": "Jobs",
+                "reveal_enabled": reveal_matches,
             },
         )
 
     @app.get("/jobs/{job_id}")
     def job_results_redirect(job_id: str) -> Any:
-        # A job's results now live in the unified Records hub, scoped to that job.
+        # In-app, a job's results open in an overlay on the Jobs page (no navigation).
+        # A direct link / bookmark to a job still resolves to its scoped Records view.
         return RedirectResponse(f"/records?job={job_id}", status_code=307)
 
     @app.get("/api/jobs/{job_id}/reveal")
@@ -611,6 +625,7 @@ def create_app(
         row = reviews.set_decision(
             source_id=source_id,
             job_id=str(decision.get("job_id") or ""),
+            run_id=str(decision.get("run_id") or "") or None,
             status=status,
             reviewer=str(decision.get("reviewer") or "operator"),
             rationale=str(decision.get("rationale") or ""),

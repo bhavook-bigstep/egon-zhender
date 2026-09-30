@@ -54,6 +54,24 @@ def test_each_decision_appends_event_but_current_is_latest(tmp_path: Path) -> No
         store.close()
 
 
+def test_run_id_is_persisted(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    try:
+        store.set_decision(
+            "note-r", "job-a", "accepted", "reviewer.one", run_id="run-v1"
+        )
+        row = store.get("note-r")
+        assert row is not None
+        assert row["run_id"] == "run-v1"
+        # a re-decision on a new version overwrites the stored run_id
+        store.set_decision(
+            "note-r", "job-b", "accepted", "reviewer.two", run_id="run-v2"
+        )
+        assert store.get("note-r")["run_id"] == "run-v2"
+    finally:
+        store.close()
+
+
 def test_invalid_status_raises(tmp_path: Path) -> None:
     store = _store(tmp_path)
     try:

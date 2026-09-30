@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Admin · Jobs{% endblock %}
 {% block content %}
-  <div id="admin">
+  <div id="admin" data-reveal="{{ '1' if reveal_enabled else '0' }}">
     {% set active = "jobs" %}
     {% include "_admin_header.html" %}
 
@@ -20,7 +20,7 @@
             <td>{{ j.progress_done }} / {{ j.progress_total }}</td>
             <td class="mono">{{ j.run_id or "—" }}</td>
             <td>
-              <a class="btn ghost" href="/jobs/{{ j.job_id }}">results</a>
+              <button class="btn ghost" data-job-results="{{ j.job_id }}">results</button>
               {% if j.status in ("queued", "running", "retrying") %}
               <button class="danger" data-action="cancel" data-job-id="{{ j.job_id }}">cancel</button>
               {% endif %}
@@ -34,4 +34,39 @@
     <div id="jobs-pager" class="pager"></div>
     {% if not jobs %}<p class="muted">No runs recorded yet.</p>{% endif %}
   </div>
+
+  {# Job results open here, on top of the Jobs page — a read-only view of the rows this
+     run produced (scoped to the run), with per-record detail. Adjudication/approval is
+     NOT here: it lives only on the Records hub, over the latest version of each record. #}
+  <dialog id="job-dialog" class="finding-dialog wide">
+    <div class="dialog-head">
+      <strong>Results · <span id="job-dialog-id" class="mono"></span></strong>
+      <button class="ghost icon" data-close aria-label="Close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="controls">
+        <label>Sort
+          <select id="job-records-sort">
+            <option value="uncertainty">least confident first</option>
+            <option value="source">source ID</option>
+          </select>
+        </label>
+        <span id="job-records-count" class="muted"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Source ID</th><th>Type</th><th>Status</th><th>Categories</th>
+                <th>Strongest</th><th>Calibration</th><th></th></tr>
+          </thead>
+          <tbody id="job-records-body"></tbody>
+        </table>
+      </div>
+      <div id="job-records-pager" class="pager"></div>
+      <p id="job-records-empty" class="muted" hidden>This run produced no records.</p>
+    </div>
+  </dialog>
+
+  {# Per-record detail (findings + gated reveal), stacked above the results overlay. #}
+  <dialog id="record-dialog" class="finding-dialog"></dialog>
 {% endblock %}
