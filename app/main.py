@@ -54,7 +54,7 @@ from pipelines.workstream1_sensitive.worker import Worker
 
 _APP_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _APP_DIR.parent
-_PAGE_SIZE = 100
+_PAGE_SIZE = 20
 _MATCH_CONTEXT_CHARS = 48
 
 
@@ -257,16 +257,21 @@ def create_app(
     def _manifest() -> list[ManifestEntry]:
         # The manifest is frozen for the life of a run (Contract 4), so fetch + parse it once
         # and slice from memory for pagination. For the Databricks backend this turns every
-        # /ws1 page load and every "Load more" from a full manifest.jsonl download off the UC
-        # volume into a single cached read (performance.md: no repeated full-corpus-metadata
-        # reads, no N+1 source reads). Also backs the admin SSE authorised count.
+        # source-browser page request (/api/source/manifest) from a full manifest.jsonl
+        # download off the UC volume into a single cached read (performance.md: no repeated
+        # full-corpus-metadata reads, no N+1 source reads). Also backs the admin SSE count.
         if "entries" not in _manifest_cache:
             cfg = load_ws1_config(config_path)
             _manifest_cache["entries"] = build_reader(cfg).list_manifest()
         return _manifest_cache["entries"]
 
     def _authorised() -> int:
-        return len(_manifest())
+        # The monitor tiles need the authorised count, but a transient source read failure
+        # (e.g. Databricks unreachable) must NOT 500 the admin pages — degrade to 0.
+        try:
+            return len(_manifest())
+        except Exception:
+            return 0
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -274,8 +279,15 @@ def create_app(
         if worker is not None:
             worker.start()
         # Pre-warm the context (load SBERT, cache the manifest) off the request path so the
-        # FIRST live run starts fast instead of paying the ~18s cold model load on click.
-        threading.Thread(target=service.warm, daemon=True).start()
+        # FIRST live run starts fast. Best-effort: a source blip here must not crash the
+        # thread or the app — real runs surface errors through the normal typed paths.
+        def _warm_quietly() -> None:
+            try:
+                service.warm()
+            except Exception:  # noqa: BLE001 — pre-warm is optional
+                pass
+
+        threading.Thread(target=_warm_quietly, daemon=True).start()
         yield
         if worker is not None:
             worker.stop()
@@ -318,46 +330,17 @@ def create_app(
 
     @app.get("/run", response_class=HTMLResponse)
     def page_run(request: Request) -> Any:
-        entries = _manifest()  # cached; sliced in memory, not re-fetched per page
-        window = entries[:_PAGE_SIZE]
-        next_offset = _PAGE_SIZE if len(entries) > _PAGE_SIZE else None
+        # The source browser pages client-side via /api/source/manifest, so the
+        # page itself is a shell — no source ids or content in the HTML.
         return templates.TemplateResponse(
             request=request,
             name="ws1.html",
-            context={
-                **_config_meta(),
-                "active": "run",
-                "page_title": "Run",
-                "items": window,
-                "total": len(entries),
-                "loaded": len(window),
-                "next_offset": next_offset,
-            },
+            context={**_config_meta(), "active": "run", "page_title": "Run"},
         )
 
     @app.get("/ws1")
     def ws1_redirect() -> Any:
         return RedirectResponse("/run", status_code=307)
-
-    @app.get("/ws1/rows", response_class=HTMLResponse)
-    def page_ws1_rows(request: Request, offset: int = 0) -> Any:
-        """HTMX fragment: the next page of source rows (+ an OOB load-more button)."""
-        entries = _manifest()  # cached; a "Load more" click never re-hits the source
-        offset = max(0, offset)
-        window = entries[offset : offset + _PAGE_SIZE]
-        nxt = offset + _PAGE_SIZE
-        next_offset = nxt if len(entries) > nxt else None
-        return templates.TemplateResponse(
-            request=request,
-            name="_rows.html",
-            context={
-                "items": window,
-                "total": len(entries),
-                "loaded": min(nxt, len(entries)),
-                "next_offset": next_offset,
-                "oob": True,
-            },
-        )
 
     @app.get("/ws1/live", response_class=HTMLResponse)
     def page_live(request: Request, source_id: str | None = None) -> Any:
@@ -506,7 +489,7 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/source/manifest")
-    def source_manifest(offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    def source_manifest(offset: int = 0, limit: int = _PAGE_SIZE) -> dict[str, Any]:
         """Metadata-only view of authorised items (no content)."""
         entries = _manifest()  # cached; paging never re-downloads the manifest
         offset = max(0, offset)

@@ -24,68 +24,148 @@ function initWs1() {
   const root = document.getElementById("ws1");
   if (!root) return;
   const configVersion = root.dataset.configVersion;
+  const body = document.getElementById("rows");
+
+  // Selection survives page navigation: the source browser pages server-side
+  // (one PAGE_SIZE window per fetch, so the full corpus never loads at once),
+  // while chosen ids live in a Set that spans pages.
+  const selectedIds = new Set();
+  let _srcPage = 1;
+  let _srcTotal = 0;
+  let _pageItems = [];
 
   function selected() {
-    return Array.from(document.querySelectorAll(".rowcheck:checked")).map((c) => c.value);
+    return Array.from(selectedIds);
   }
   function refreshCount() {
-    const n = selected().length;
     const label = document.getElementById("selcount");
-    if (label) label.textContent = n + " selected";
+    if (label) label.textContent = selectedIds.size + " selected";
+  }
+  function syncSelectAll() {
+    const selAll = document.getElementById("select-all");
+    if (selAll)
+      selAll.checked = _pageItems.length > 0 && _pageItems.every((e) => selectedIds.has(e.source_id));
   }
 
-  // Event delegation: rows can be added later via HTMX "load more".
-  document.addEventListener("change", (e) => {
-    if (e.target.classList && e.target.classList.contains("rowcheck")) refreshCount();
-    if (e.target.id === "select-all") {
-      document.querySelectorAll(".rowcheck").forEach((c) => (c.checked = e.target.checked));
-      refreshCount();
-    }
-  });
+  function drawRows() {
+    if (!body) return;
+    body.textContent = "";
+    _pageItems.forEach((e) => {
+      const tr = document.createElement("tr");
+      const selTd = document.createElement("td");
+      selTd.className = "rowsel";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "rowcheck";
+      cb.value = e.source_id;
+      cb.checked = selectedIds.has(e.source_id);
+      selTd.appendChild(cb);
+      tr.appendChild(selTd);
+      tr.appendChild(cell(e.source_id, "mono"));
+      tr.appendChild(cell(e.content_type));
+      tr.appendChild(cell(e.author));
+      tr.appendChild(cell(e.datetime));
+      tr.appendChild(cell(e.linked_executive));
+      tr.appendChild(cell(e.linked_project));
+      body.appendChild(tr);
+    });
+    syncSelectAll();
+    renderPager(document.getElementById("rows-pager"), _srcPage, _srcTotal, (p) => loadPage(p));
+  }
 
-  const single = document.getElementById("run-single");
-  if (single)
-    single.addEventListener("click", () => {
-      const ids = selected();
-      if (ids.length !== 1) {
-        toast("Select exactly one item for the live single view.");
-        return;
-      }
-      window.location.href = "/ws1/live?source_id=" + encodeURIComponent(ids[0]);
+  async function loadPage(page) {
+    const offset = (page - 1) * PAGE_SIZE;
+    let data;
+    try {
+      data = await (
+        await fetch("/api/source/manifest?offset=" + offset + "&limit=" + PAGE_SIZE)
+      ).json();
+    } catch (err) {
+      toast("Could not load the source list: " + err);
+      return;
+    }
+    _srcTotal = data.total || 0;
+    _srcPage = page;
+    _pageItems = data.items || [];
+    drawRows();
+  }
+
+  // Checkbox state lives in the Set; delegation covers rows re-rendered per page.
+  if (body)
+    body.addEventListener("change", (e) => {
+      if (!(e.target.classList && e.target.classList.contains("rowcheck"))) return;
+      if (e.target.checked) selectedIds.add(e.target.value);
+      else selectedIds.delete(e.target.value);
+      refreshCount();
+      syncSelectAll();
+    });
+  const selAllEl = document.getElementById("select-all");
+  if (selAllEl)
+    selAllEl.addEventListener("change", (e) => {
+      _pageItems.forEach((it) => {
+        if (e.target.checked) selectedIds.add(it.source_id);
+        else selectedIds.delete(it.source_id);
+      });
+      if (body) body.querySelectorAll(".rowcheck").forEach((c) => (c.checked = e.target.checked));
+      refreshCount();
     });
 
-  const batch = document.getElementById("run-batch");
-  if (batch)
-    batch.addEventListener("click", async () => {
+  async function submitBatch(ids) {
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_type: "batch", config_version: configVersion, source_ids: ids }),
+      });
+      const job = await res.json();
+      if (job.status === "failed") {
+        toast("Rejected: " + (job.exception || "unknown error"), { sticky: true });
+        return false;
+      }
+      toast("Queued (" + ids.length + " item" + (ids.length === 1 ? "" : "s") + ").", { ok: true });
+      batchNotification(job.job_id, ids.length);
+      return true;
+    } catch (err) {
+      toast("Submit failed: " + err);
+      return false;
+    }
+  }
+
+  // Smart run: 0 → prompt; >1 → batch straight away; exactly 1 → live-or-queue dialog.
+  const run = document.getElementById("run-selected");
+  if (run)
+    run.addEventListener("click", async () => {
       const ids = selected();
       if (ids.length === 0) {
-        toast("Select at least one item for a batch run.");
+        toast("Select at least one item.");
         return;
       }
-      batch.disabled = true;
-      try {
-        const res = await fetch("/api/jobs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            job_type: "batch",
-            config_version: configVersion,
-            source_ids: ids,
-          }),
-        });
-        const job = await res.json();
-        if (job.status === "failed") {
-          toast("Batch rejected: " + (job.exception || "unknown error"), { sticky: true });
-        } else {
-          toast("Batch queued (" + ids.length + " items).", { ok: true });
-          batchNotification(job.job_id, ids.length);
-        }
-      } catch (err) {
-        toast("Submit failed: " + err);
-      } finally {
-        batch.disabled = false;
+      if (ids.length > 1) {
+        run.disabled = true;
+        if (await submitBatch(ids)) setTimeout(() => (window.location.href = "/jobs"), 600);
+        run.disabled = false;
+        return;
       }
+      const dlg = document.getElementById("run-dialog");
+      const idLabel = document.getElementById("run-dialog-id");
+      if (idLabel) idLabel.textContent = ids[0];
+      const live = document.getElementById("run-live");
+      const queue = document.getElementById("run-queue");
+      if (live)
+        live.onclick = () => {
+          window.location.href = "/ws1/live?source_id=" + encodeURIComponent(ids[0]);
+        };
+      if (queue)
+        queue.onclick = async () => {
+          queue.disabled = true;
+          if (await submitBatch(ids)) setTimeout(() => (window.location.href = "/jobs"), 600);
+          queue.disabled = false;
+        };
+      if (dlg && typeof dlg.showModal === "function") dlg.showModal();
     });
+
+  loadPage(1);
+  refreshCount();
 }
 
 // ---- safe DOM helpers (never innerHTML server-derived values) ----------
@@ -105,6 +185,58 @@ function chipCell(text, extraClass) {
 }
 function scoreText(v) {
   return v == null ? "—" : Number(v).toFixed(1);
+}
+
+// ---- shared page-based pagination -------------------------------------
+const PAGE_SIZE = 20;
+function pageWindow(page, pages) {
+  // e.g. [1, "…", 4, 5, 6, "…", 20]
+  const want = new Set([1, pages, page, page - 1, page + 1]);
+  const nums = [...want].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const win = [];
+  let prev = 0;
+  nums.forEach((n) => {
+    if (n - prev > 1) win.push("…");
+    win.push(n);
+    prev = n;
+  });
+  return win;
+}
+function renderPager(el, page, total, onGo) {
+  if (!el) return;
+  el.textContent = "";
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  page = Math.min(Math.max(1, page), pages);
+  const info = document.createElement("span");
+  info.className = "pager-info";
+  const start = total ? (page - 1) * PAGE_SIZE + 1 : 0;
+  const end = Math.min(page * PAGE_SIZE, total);
+  info.textContent = start + "–" + end + " of " + total;
+  el.appendChild(info);
+  if (pages <= 1) return;
+  const nav = document.createElement("div");
+  nav.className = "pager-nav";
+  const mk = (label, target, disabled, active) => {
+    const b = document.createElement("button");
+    b.className = "pager-btn" + (active ? " active" : "");
+    b.textContent = label;
+    b.disabled = !!disabled;
+    if (!disabled && !active) b.addEventListener("click", () => onGo(target));
+    return b;
+  };
+  nav.appendChild(mk("‹", page - 1, page <= 1));
+  pageWindow(page, pages).forEach((p) => {
+    if (p === "…") {
+      const gap = document.createElement("span");
+      gap.className = "pager-gap";
+      gap.textContent = "…";
+      nav.appendChild(gap);
+    } else {
+      nav.appendChild(mk(String(p), p, false, p === page));
+    }
+  });
+  nav.appendChild(mk("›", page + 1, page >= pages));
+  el.appendChild(nav);
 }
 
 // ---- step-by-step pipeline view ---------------------------------------
@@ -595,7 +727,11 @@ function initAdmin() {
       renderEval(data);
     }
     const filterEl = document.getElementById("eval-filter");
-    if (filterEl) filterEl.addEventListener("change", renderEvalRows);
+    if (filterEl)
+      filterEl.addEventListener("change", () => {
+        _evalPage = 1;
+        renderEvalRows();
+      });
     refreshEval();
     setInterval(refreshEval, 5000);
   }
@@ -618,13 +754,18 @@ function initAdmin() {
 
 let _recordsCache = [];
 let _recordsBound = false;
+let _recordsPage = 1;
 function renderRecords(records) {
   _recordsCache = records;
   if (!_recordsBound) {
     _recordsBound = true;
     ["records-sort", "records-review-filter"].forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.addEventListener("change", applyRecordsView);
+      if (el)
+        el.addEventListener("change", () => {
+          _recordsPage = 1;  // filter/sort resets to the first page
+          applyRecordsView();
+        });
     });
     const body = document.getElementById("records-body");
     if (body) {
@@ -753,11 +894,19 @@ function applyRecordsView() {
   } else {
     rows.sort((a, b) => String(a.source_id).localeCompare(String(b.source_id)));
   }
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_recordsPage > pages) _recordsPage = pages;
+  const pageRows = rows.slice((_recordsPage - 1) * PAGE_SIZE, _recordsPage * PAGE_SIZE);
   body.textContent = "";
   if (empty) empty.hidden = _recordsCache.length > 0;
   const count = document.getElementById("records-count");
-  if (count) count.textContent = rows.length + " shown";
-  rows.forEach((r) => body.appendChild(recordRow(r)));
+  if (count) count.textContent = total + " total";
+  pageRows.forEach((r) => body.appendChild(recordRow(r)));
+  renderPager(document.getElementById("records-pager"), _recordsPage, total, (p) => {
+    _recordsPage = p;
+    applyRecordsView();
+  });
 }
 function recordRow(r) {
   const tr = document.createElement("tr");
@@ -773,11 +922,14 @@ function recordRow(r) {
   tr.appendChild(chipCell(r.review_status || "pending", r.review_status || "pending"));
   // adjudicate cell: rationale + accept/reject/needs-info
   const adj = document.createElement("td");
+  adj.className = "adj-cell";
   const rat = document.createElement("input");
   rat.className = "rec-rationale";
-  rat.placeholder = "rationale";
+  rat.placeholder = "rationale (optional)";
   rat.value = r.rationale || "";
   adj.appendChild(rat);
+  const adjBtns = document.createElement("div");
+  adjBtns.className = "adj-buttons";
   [["accepted", "Accept"], ["rejected", "Reject"], ["needs_info", "Info"]].forEach(([st, label]) => {
     const b = document.createElement("button");
     b.className = "ghost";
@@ -785,8 +937,9 @@ function recordRow(r) {
     b.dataset.review = st;
     b.dataset.src = r.source_id;
     b.dataset.job = r.job_id || "";
-    adj.appendChild(b);
+    adjBtns.appendChild(b);
   });
+  adj.appendChild(adjBtns);
   tr.appendChild(adj);
   const td = document.createElement("td");
   const btn = document.createElement("button");
@@ -844,6 +997,7 @@ function setNum(id, v) {
 
 // ---- evaluation (expected vs actual) -----------------------------------
 let _evalReport = null;
+let _evalPage = 1;
 function renderEval(report) {
   _evalReport = report;
   const f = report.flagging || {};
@@ -904,10 +1058,14 @@ function renderEvalRows() {
   const onlyMismatch = filterEl && filterEl.value === "mismatch";
   let rows = _evalReport.rows || [];
   if (onlyMismatch) rows = rows.filter((r) => !r.flag_match || !r.categories_match);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_evalPage > pages) _evalPage = pages;
+  const pageRows = rows.slice((_evalPage - 1) * PAGE_SIZE, _evalPage * PAGE_SIZE);
   body.textContent = "";
   if (empty) empty.hidden = (_evalReport.rows || []).length > 0;
-  if (count) count.textContent = rows.length + " shown";
-  rows.forEach((r) => {
+  if (count) count.textContent = total + " total";
+  pageRows.forEach((r) => {
     const tr = document.createElement("tr");
     tr.appendChild(cell(r.source_id, "mono"));
     tr.appendChild(cell(r.scanned ? "scan " + (r.scan_severity || "") : "digital"));
@@ -918,6 +1076,10 @@ function renderEvalRows() {
     tr.appendChild(cell((r.actual_categories || []).join(", ") || "—"));
     tr.appendChild(cell(matchMark(r.categories_match)));
     body.appendChild(tr);
+  });
+  renderPager(document.getElementById("eval-pager"), _evalPage, total, (p) => {
+    _evalPage = p;
+    renderEvalRows();
   });
 }
 
@@ -943,11 +1105,24 @@ function actionButton(label, action, jobId, className) {
   return b;
 }
 
+let _jobsCache = [];
+let _jobsPage = 1;
 function renderJobs(jobs) {
   const body = document.getElementById("jobs-body");
   if (!body) return;
+  _jobsCache = jobs;
+  drawJobs();
+}
+function drawJobs() {
+  const body = document.getElementById("jobs-body");
+  if (!body) return;
+  const jobs = _jobsCache;
+  const total = jobs.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (_jobsPage > pages) _jobsPage = pages;
+  const pageRows = jobs.slice((_jobsPage - 1) * PAGE_SIZE, _jobsPage * PAGE_SIZE);
   body.textContent = "";
-  jobs.forEach((j) => {
+  pageRows.forEach((j) => {
     const done = j.progress_done || 0;
     const total = j.progress_total || 0;
     const active = j.status === "queued" || j.status === "running" || j.status === "retrying";
@@ -972,6 +1147,10 @@ function renderJobs(jobs) {
     actions.appendChild(actionButton("retry", "retry-failed", j.job_id, "ghost"));
     tr.appendChild(actions);
     body.appendChild(tr);
+  });
+  renderPager(document.getElementById("jobs-pager"), _jobsPage, total, (p) => {
+    _jobsPage = p;
+    drawJobs();
   });
 }
 

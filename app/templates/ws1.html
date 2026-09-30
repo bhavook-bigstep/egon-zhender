@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}WS-1 · Source browser{% endblock %}
+{% block title %}Run{% endblock %}
 {% block content %}
-  <span class="eyebrow">Workstream 1</span>
-  <h1>Sensitive-data identification</h1>
+  <span class="eyebrow">Run</span>
+  <h1>Flag a source</h1>
 
   {% if not inference_local %}
   <div class="banner warn">
-    <strong>Managed inference selected.</strong> This config points at a non-local model
+    <strong>Managed inference.</strong> This config points at a non-local model
     ({{ model_version }}). Egress requires <em>prior written approval</em>
-    {% if approval_written %}(recorded: approval_written = true){% else %}
-    <strong>— not yet recorded</strong>; the pipeline gate will refuse to send content{% endif %}.
+    {% if approval_written %}(recorded){% else %}<strong>— not recorded</strong>;
+    the pipeline gate will refuse to send content{% endif %}.
   </div>
   {% else %}
   <div class="banner ok">
@@ -19,11 +19,9 @@
 
   <div id="ws1" data-config-version="{{ config_version }}">
     <div class="controls">
-      <button type="button" id="run-single">Run single (live view)</button>
-      <button type="button" id="run-batch" class="ghost">Run batch</button>
+      <button type="button" id="run-selected" class="btn">Run selected</button>
       <span id="selcount" class="muted">0 selected</span>
     </div>
-
     <div id="notifications"></div>
 
     <div class="table-wrap">
@@ -35,21 +33,28 @@
             <th>Executive</th><th>Project</th>
           </tr>
         </thead>
-        <tbody id="rows">
-          {% include "_rows.html" %}
-        </tbody>
+        <tbody id="rows"></tbody>
       </table>
     </div>
-
-    <div class="controls">
-      {% if next_offset is not none %}
-      <button id="more-btn" class="btn ghost"
-              hx-get="/ws1/rows?offset={{ next_offset }}" hx-target="#rows" hx-swap="beforeend">
-        Load more <span class="muted">({{ loaded }} of {{ total }})</span>
-      </button>
-      {% else %}
-      <span id="more-btn" class="muted">All {{ total }} items loaded.</span>
-      {% endif %}
-    </div>
+    <div id="rows-pager" class="pager"></div>
   </div>
+
+  {# Single-item run: choose live view vs a queued background job. Multiple items → batch. #}
+  <dialog id="run-dialog" class="finding-dialog">
+    <div class="dialog-head">
+      <strong>Run <span id="run-dialog-id" class="mono"></span></strong>
+      <button class="ghost icon" data-close aria-label="Close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p>Watch it step-by-step now, or queue it to run in the background.</p>
+      <div class="controls">
+        <button type="button" id="run-live" class="btn">Watch live</button>
+        <button type="button" id="run-queue" class="btn ghost">Queue as job</button>
+      </div>
+      <p class="muted" style="margin-top:12px">
+        The live view stops if you leave the page; queued jobs finish in the background
+        (track them from the Jobs bell) and their results appear in Records.
+      </p>
+    </div>
+  </dialog>
 {% endblock %}

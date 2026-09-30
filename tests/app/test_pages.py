@@ -49,20 +49,24 @@ def test_run_page_renders_in_console_shell(client: TestClient) -> None:
 
 
 def test_ws1_browser_is_metadata_only(client: TestClient) -> None:
-    r = client.get("/ws1")
+    r = client.get("/ws1")  # → /run
     assert r.status_code == 200
-    assert "note_001" in r.text
-    assert "Run single" in r.text and "Run batch" in r.text
-    # metadata only: no content, no hash/path columns, no sensitive tokens
+    assert "Run selected" in r.text  # the smart run control
+    assert 'id="rows-pager"' in r.text  # page-based pagination, not "load more"
+    # The source browser pages client-side; the page shell carries no source ids.
+    assert "note_001" not in r.text
     for token in SENSITIVE_TOKENS:
         assert token not in r.text
 
 
-def test_ws1_rows_fragment_renders(client: TestClient) -> None:
-    r = client.get("/ws1/rows?offset=0")
-    assert r.status_code == 200
-    assert "<tr>" in r.text
-    assert "rowcheck" in r.text
+def test_source_manifest_api_is_metadata_only(client: TestClient) -> None:
+    # The browser now pages via this JSON endpoint; it carries metadata only.
+    data = client.get("/api/source/manifest?offset=0&limit=20").json()
+    assert data["total"] >= 1
+    ids = [it["source_id"] for it in data["items"]]
+    assert "note_001" in ids
+    for token in SENSITIVE_TOKENS:
+        assert token not in json.dumps(data)
 
 
 def test_live_page_wires_source_id(client: TestClient) -> None:
@@ -400,8 +404,8 @@ def test_manifest_fetched_once_across_pagination(
     app = create_app(str(cfg_path), str(tmp_path / "r.db"), start_worker=False)
     with TestClient(app) as c:
         assert c.get("/ws1").status_code == 200
-        assert c.get("/ws1/rows?offset=100").status_code == 200
         assert c.get("/api/source/manifest?offset=0").status_code == 200
+        assert c.get("/api/source/manifest?offset=100").status_code == 200
     assert calls["n"] == 1  # one manifest read across three paginated requests
 
 
@@ -494,3 +498,11 @@ def test_review_adjudication_flow(client: TestClient) -> None:
     assert "review_status" in exp.text and "rationale" in exp.text and "looks correct" in exp.text
     for token in SENSITIVE_TOKENS:
         assert token not in exp.text  # reviewer text only, no source content
+
+
+def test_run_page_controls(client: TestClient) -> None:
+    r = client.get("/run")
+    assert r.status_code == 200
+    assert 'id="run-selected"' in r.text  # one smart run button (batch straight away / dialog)
+    assert 'id="run-dialog"' in r.text  # single-item live-vs-queue dialog
+    assert 'id="run-live"' in r.text and 'id="run-queue"' in r.text
