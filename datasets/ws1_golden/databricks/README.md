@@ -10,10 +10,15 @@ This puts the golden dataset into Unity Catalog as:
 
 ## Steps (you run these — your credentials stay yours)
 
-1. **Install + authenticate the CLI** (once):
+1. **Install + authenticate the CLI** (once). Use the **modern** CLI (not the pip
+   `databricks-cli`), and **token/OAuth** auth — basic (username/password) is disabled:
    ```bash
-   pip install databricks-cli
-   databricks configure        # host = your workspace URL; token = a PAT you create
+   brew tap databricks/tap && brew install databricks
+   # OAuth (writes the DEFAULT profile so the script works with no env var):
+   databricks auth login --host https://<your-workspace>.cloud.databricks.com --profile DEFAULT
+   databricks current-user me     # verify
+   # (Alternative: a PAT via env vars — export DATABRICKS_HOST + DATABRICKS_TOKEN.)
+   # If you authenticated a NAMED profile, run the upload with PROFILE=<name>.
    ```
 2. **Upload the files** to a Volume:
    ```bash

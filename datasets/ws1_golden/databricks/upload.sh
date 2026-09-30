@@ -14,8 +14,21 @@ set -euo pipefail
 : "${SCHEMA:?set SCHEMA (e.g. prince_houston)}"
 VOLUME="${VOLUME:-ws1_golden}"
 
+# Optional named auth profile (from `databricks auth login [--profile NAME]`). If you
+# authenticated to a profile named after your email, run with PROFILE=that-name.
+if [[ -n "${PROFILE:-}" ]]; then export DATABRICKS_CONFIG_PROFILE="${PROFILE}"; fi
+
 HERE="$(cd "$(dirname "$0")/.." && pwd)"   # datasets/ws1_golden
 VOL="/Volumes/${CATALOG}/${SCHEMA}/${VOLUME}"
+
+# Preflight: fail fast with a clear message instead of a cryptic basic-auth error.
+if ! databricks current-user me >/dev/null 2>&1; then
+  echo "ERROR: Databricks auth not working (token/OAuth required — basic auth is disabled)." >&2
+  echo "Fix: databricks auth login --host <workspace-url> --profile DEFAULT" >&2
+  echo "  or authenticate a named profile and re-run with PROFILE=<name>." >&2
+  exit 1
+fi
+echo "Authenticated as: $(databricks current-user me | sed -n 's/.*\"userName\": *\"\([^\"]*\)\".*/\1/p' | head -1)"
 
 echo "Ensuring schema + volume exist..."
 databricks schemas create "${SCHEMA}" "${CATALOG}" 2>/dev/null || true
