@@ -193,18 +193,58 @@ button.danger:hover { background: var(--accent-dark); border-color: var(--accent
 .banner.warn { background: var(--warn-soft); border-left-color: var(--warn); color: var(--warn); }
 
 /* Horizontal pipeline flow */
-.steps { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 8px 0 16px; margin: 18px 0; }
-.step-node {
-  flex: 0 0 auto; min-width: 156px; text-align: left; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--line-strong);
-  border-radius: 0; padding: 14px 16px; margin-right: -1px; transition: background .14s, border-color .14s;
+.steps { display: flex; align-items: flex-start; justify-content: safe center; gap: 0;
+  overflow-x: auto; padding: 14px 2px 22px; margin: 18px 0; }
+/* New step slides in; existing steps recenter via a JS FLIP transition. */
+.step-in { animation: step-in .35s ease both; }
+@keyframes step-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+
+/* Stepper node: a status badge with the label + metric beneath, joined by a progress rail. */
+.step-node { flex: 0 0 auto; width: 150px; display: flex; flex-direction: column; align-items: center;
+  text-align: center; cursor: pointer; background: none; border: 0; padding: 0; }
+.step-node:focus-visible { outline: none; }
+.step-node:focus-visible .step-badge { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.step-badge { position: relative; z-index: 1; width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px;
+  border: 2px solid var(--line-strong); background: var(--surface); color: var(--ink-soft);
+  transition: background .2s, border-color .2s, color .2s; }
+/* progress rail to the previous badge */
+.step-badge::before { content: ""; position: absolute; top: 50%; right: 100%; width: 114px; height: 2px;
+  transform: translateY(-50%); background: var(--ink); }
+.step-node:first-child .step-badge::before { display: none; }
+.step-node.done .step-badge { background: var(--ink); border-color: var(--ink); color: #fff; }
+.step-node.failed .step-badge { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step-node.failed .step-badge::before { background: var(--accent); }
+.step-node.running .step-badge { border-color: var(--accent); color: var(--accent-dark); }
+.step-node.running .step-badge::before { background: var(--accent); }
+.step-node.running .step-badge::after { content: ""; position: absolute; inset: -5px; border-radius: 50%;
+  border: 2px solid transparent; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.step-name { font-weight: 700; font-size: 13px; margin: 12px 0 3px; color: var(--ink); }
+.step-node.running .step-name { color: var(--accent-dark); }
+.step-metric { font-size: 11.5px; color: var(--ink-soft); min-height: 1em; padding: 0 6px; }
+.step-dur { font-size: 10px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .step-node.running .step-badge::after { animation: none; }
+  .step-in { animation: none; }
 }
-.step-node:hover, .step-node:focus-visible { background: var(--surface-2); border-top-color: var(--ink); outline: none; }
-.step-node.done { border-top-color: var(--ink); }
-.step-node.failed { border-top-color: var(--accent); }
-.step-no { display: block; font-size: 10px; letter-spacing: .12em; color: var(--muted); font-weight: 700; }
-.step-node .step-name { display: block; font-weight: 700; margin: 4px 0 10px; }
-.step-arrow { flex: 0 0 auto; align-self: center; color: var(--line-strong); font-size: 16px; padding: 0 4px; }
+/* Final outcome banner. */
+.live-outcome { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 0 6px;
+  padding: 14px 18px; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); background: var(--surface-2); }
+.live-outcome.flagged { border-left-color: var(--accent); }
+.live-outcome.not_flagged { border-left-color: var(--ink); }
+.live-outcome.unable_to_process { border-left-color: var(--muted); }
+.live-outcome .lo-cats { font-weight: 700; }
+.live-outcome .lo-score { margin-left: auto; }
+/* Phones: stack the pipeline vertically (horizontal scroll is cramped). */
+@media (max-width: 640px) {
+  .steps { flex-direction: column; align-items: center; overflow-x: visible; gap: 10px; }
+  .step-node { width: 100%; max-width: 320px; }
+  .step-badge::before { display: none; }  /* horizontal rail doesn't apply when stacked */
+}
 
 .metric { background: var(--surface-2); border: 1px solid var(--line); border-radius: 0; padding: 3px 10px; font-size: 12px; color: var(--muted); }
 .metric b { color: var(--ink); font-weight: 700; }
@@ -240,6 +280,13 @@ button.icon { padding: 6px 11px; font-size: 14px; line-height: 1; }
 .fc-match-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
 .fc-match-text { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 12px 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
 mark { background: var(--accent-soft); color: var(--accent-dark); border-radius: 0; padding: 1px 4px; font-weight: 700; }
+/* Lazy-reveal loading placeholder (shimmer) shown while the span is read from source. */
+.fc-match.loading .fc-match-label::after { content: " · reading…"; }
+.fc-match-skeleton { height: 3.2em; border: 1px solid var(--line); background:
+  linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%);
+  background-size: 300% 100%; animation: fc-shimmer 1.15s ease-in-out infinite; }
+@keyframes fc-shimmer { 0% { background-position: 150% 0; } 100% { background-position: -150% 0; } }
+@media (prefers-reduced-motion: reduce) { .fc-match-skeleton { animation: none; } }
 .fc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 22px; margin: 0; }
 .fc-meta dt { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
 .fc-meta dd { margin: 0; color: var(--ink); }

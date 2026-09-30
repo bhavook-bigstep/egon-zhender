@@ -43,4 +43,16 @@ in review, a debug session runs longer than ~2 hours, or the same mistake is mad
    location, no matched string / OCR text / raw identifiers). See
    `docs/solutions/patterns/ws1-web-ui-sse-sqlite-queue.md`.
 
+5. **Three-valued status collapsed to a boolean in a scorer** — Reducing a status enum
+   with `== "<one-value>"` aliases every other member into one bucket. In the WS-1 eval,
+   `unable_to_process` (a processing *failure*) aliased onto "not flagged", so a failed
+   record was scored as a correct true negative, marked `flag_match=True` (a green ✓), and
+   hidden by the "mismatches only" filter — a processing failure reported as a validated
+   determination (Contract 3 / `matching-scoring.md` #4). Near-miss caught in review 2026-09-30.
+   → Handle every enum member explicitly. Separate *reliability* (processed / failed) from
+   *accuracy* (correct / incorrect); compute accuracy only over records that produced a
+   determination, and count non-determination states separately. Test the failure state
+   (`unable_to_process` for WS-1; `Multiple`/`No match` for WS-2 ratings). See
+   `docs/solutions/patterns/eval-three-valued-status-collapsed-to-boolean.md`.
+
 <!-- Add new incident-derived patterns below. Keep each one: Name — failure mode — prevention. -->

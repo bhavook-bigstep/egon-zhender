@@ -5,8 +5,7 @@
   <h1 class="mono">{{ source_id }}</h1>
 
   <div id="live" data-source-id="{{ source_id }}">
-    <p><strong>Status:</strong> <span id="live-status">running…</span>
-       <a id="to-workbook" class="btn" style="display:none" href="#">Open workbook →</a></p>
+    <div id="live-outcome" class="live-outcome" hidden></div>
 
     <h2>Pipeline steps</h2>
     <div id="timeline" class="steps"></div>
@@ -24,7 +23,10 @@
     </div>
   </div>
 
-  <p class="controls"><a class="btn ghost" href="/ws1">← Back to browser</a></p>
+  <p class="controls">
+    <a class="btn ghost" href="/ws1">← Back to browser</a>
+    <a id="to-workbook" class="btn" style="display:none" href="#">Open workbook →</a>
+  </p>
 
   <dialog id="step-dialog" class="finding-dialog"></dialog>
 {% endblock %}

@@ -62,8 +62,14 @@ python -m pipelines.workstream1_sensitive --config config/ws1.yaml --source-id n
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 #   /            hero (WS-1 / WS-2)          /ws1     source browser → single | batch
 #   /ws1/live    interactive step-by-step    /jobs/<id>  results workbook
-#   /admin       migration monitor (SSE)     /health  liveness
+#   /admin       jobs monitor (SSE)          /admin/workbook  latest-per-record + §3.4 export
+#   /admin/eval  expected vs actual (golden) /health          liveness
 # WS-2 remains a placeholder (python -m pipelines.workstream2_matching --config config/ws2.yaml).
+
+# Read the source from Databricks (Unity Catalog volume) instead of local files. The pipeline
+# still runs locally (Docker engines); Databricks is the source. Auth: databricks CLI profile.
+#   DATABRICKS_CONFIG_PROFILE=<profile> \
+#   python -m pipelines.workstream1_sensitive --config config/ws1.databricks.yaml
 ```
 
 > The web app is a single FastAPI process: SQLite doubles as the durable job queue,

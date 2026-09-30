@@ -20,6 +20,7 @@ from libs.config import load_ws1_config
 from libs.inference.base import InferenceProvider
 from libs.inference.mock import MockProvider
 from libs.inference.openweight import HttpChatClient, OpenWeightProvider
+from libs.recognizers_store import apply_recognizer_overlay
 from libs.schemas import (
     EvidenceLocation,
     ExceptionCode,
@@ -92,7 +93,8 @@ def build_context(cfg: Ws1Config) -> Ws1Context:
         provider=build_provider(cfg),
         ocr=build_ocr(cfg),
         extraction_engine=build_extraction_engine(cfg.extract),
-        detection_engine=build_detection_engine(cfg.detect),
+        # Merge any UI-managed custom recognisers on top of the config's detect settings.
+        detection_engine=build_detection_engine(apply_recognizer_overlay(cfg.detect)),
         screen=build_semantic_screen(cfg),
         calibrator=build_calibrator(cfg),
     )
@@ -101,6 +103,12 @@ def build_context(cfg: Ws1Config) -> Ws1Context:
 def build_reader(cfg: Ws1Config) -> SourceReader:
     if cfg.source.backend == "sample":
         return SampleTestEnvReader(cfg.source.root, cfg.source.manifest)
+    if cfg.source.backend == "databricks":
+        from libs.source.databricks import DatabricksSourceReader  # lazy: optional dep
+
+        return DatabricksSourceReader(
+            cfg.source.root, cfg.source.manifest, profile=cfg.source.profile
+        )
     raise ValueError(f"unsupported source backend: {cfg.source.backend}")
 
 
@@ -119,9 +127,31 @@ def build_provider(cfg: Ws1Config) -> InferenceProvider:
             if cfg.inference.api_key_env
             else None
         )
-        client = HttpChatClient(cfg.inference.base_url, api_key=api_key)
+        client = HttpChatClient(
+            cfg.inference.base_url, api_key=api_key, chat_path=cfg.inference.chat_path
+        )
         return OpenWeightProvider(
             client=client,
+            model_version=cfg.inference.model_version,
+            is_local=cfg.inference.is_local,
+            approval_written=cfg.inference.approval_written,
+        )
+    if cfg.inference.provider == "anthropic":
+        from libs.inference.anthropic import (  # lazy: Messages API adapter
+            AnthropicProvider,
+            HttpAnthropicClient,
+        )
+
+        api_key = (
+            os.environ.get(cfg.inference.api_key_env)
+            if cfg.inference.api_key_env
+            else None
+        )
+        anthropic_client = HttpAnthropicClient(
+            cfg.inference.base_url or "https://api.anthropic.com", api_key=api_key
+        )
+        return AnthropicProvider(
+            client=anthropic_client,
             model_version=cfg.inference.model_version,
             is_local=cfg.inference.is_local,
             approval_written=cfg.inference.approval_written,
@@ -155,6 +185,20 @@ def build_ocr(cfg: Ws1Config) -> OCRProvider:
         if not cfg.ocr.url:
             raise ValueError("ocr provider 'docling' requires ocr.url")
         return HttpOcrProvider(cfg.ocr.url)
+    if cfg.ocr.provider == "preprocess":
+        from pipelines.workstream1_sensitive.ocr_preprocess_provider import (
+            PreprocessOcrProvider,
+        )
+
+        if not cfg.ocr.url:
+            raise ValueError("ocr provider 'preprocess' requires ocr.url")
+        return PreprocessOcrProvider(
+            cfg.ocr.url,
+            dpi=cfg.ocr.dpi,
+            deskew=cfg.ocr.deskew,
+            denoise=cfg.ocr.denoise,
+            binarize=cfg.ocr.binarize,
+        )
     raise ValueError(f"unsupported ocr provider: {cfg.ocr.provider}")
 
 
@@ -274,7 +318,12 @@ def process_item(
             )
         )
         model = assess(
-            extracted, routed, cfg.scoring, ctx.provider, cfg.inference.hash_key_env
+            extracted,
+            routed,
+            cfg.scoring,
+            ctx.provider,
+            cfg.inference.hash_key_env,
+            max_span_chars=cfg.inference.max_span_chars,
         )
         assess_records: list[dict[str, str | float | int | None]] = [
             {
@@ -385,7 +434,7 @@ def run(config_path: str | Path) -> RunResult:
 
     entries = ctx.reader.list_manifest()
     run_id = compute_run_id(entries, cfg)
-    snapshot_id = f"sample:{Path(cfg.source.manifest).stem}"
+    snapshot_id = f"{cfg.source.backend}:{Path(cfg.source.manifest).stem}"
     ledger = RunLedger(run_id, cfg.config_version)
 
     summaries: list[Ws1Summary] = []

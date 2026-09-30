@@ -84,7 +84,9 @@
   {% for r in rows %}
     {% set items = findings_by_source.get(r.source_id, []) %}
     {% if items %}
-    <dialog id="finding-dlg-{{ loop.index }}" class="finding-dialog">
+    <dialog id="finding-dlg-{{ loop.index }}" class="finding-dialog"
+            data-source-id="{{ r.source_id }}" data-job-id="{{ job.job_id }}"
+            data-reveal="{{ '1' if reveal_enabled else '0' }}">
       <div class="dialog-head">
         <div>
           <strong class="mono">{{ r.source_id }}</strong>
@@ -111,12 +113,9 @@
             </span>
           </div>
           <div class="fc-reason">{{ f.reason_text }}</div>
-          {% if f.char_match is defined %}
-          <div class="fc-match">
-            <div class="fc-match-label">Matched content
-              <span class="muted">· PoC · re-read from source in-boundary, not stored</span></div>
-            <div class="fc-match-text mono">{{ f.char_pre }}<mark>{{ f.char_match }}</mark>{{ f.char_post }}</div>
-          </div>
+          {% if reveal_enabled %}
+          {# Lazy: filled from /api/jobs/{id}/reveal when the dialog is opened. #}
+          <div class="fc-match-slot" data-finding-id="{{ f.finding_id }}"></div>
           {% endif %}
           <dl class="fc-meta">
             <div><dt>Score type</dt><dd>{{ f.score_type }}</dd></div>

@@ -6,7 +6,13 @@ from typing import Any
 
 import pytest
 
-from libs.schemas import DetectConfig, ExceptionCode, ScoreType
+from libs.schemas import (
+    CustomRecogniserConfig,
+    DetectConfig,
+    ExceptionCode,
+    PatternSpec,
+    ScoreType,
+)
 from pipelines.workstream1_sensitive.detect import build_detection_engine
 from pipelines.workstream1_sensitive.detect_presidio_http import PresidioHttpEngine
 from pipelines.workstream1_sensitive.errors import PipelineItemError
@@ -69,3 +75,39 @@ def test_factory_builds_presidio_http() -> None:
 def test_engine_without_url_or_client_raises() -> None:
     with pytest.raises(ValueError):
         PresidioHttpEngine(DetectConfig(engine="presidio_http"))
+
+
+def test_custom_recognizers_sent_as_ad_hoc_and_mapped() -> None:
+    """Config custom_recognizers are added to the /analyze request (ad-hoc) in Presidio's
+    from_dict shape, and their entity maps to a category via category_map."""
+    cfg = DetectConfig(
+        engine="presidio_http",
+        presidio_url="http://presidio",
+        custom_recognizers=[
+            CustomRecogniserConfig(
+                name="swift_bic_recognizer",
+                supported_entity="SWIFT_BIC",
+                patterns=[PatternSpec(name="swift", regex=r"\b[A-Z]{4}[A-Z0-9]{4,7}\b", score=0.5)],
+                context=["swift", "transfer"],
+            )
+        ],
+        category_map={"SWIFT_BIC": "financial"},
+    )
+    client = _FakeClient([{"entity_type": "SWIFT_BIC", "start": 0, "end": 10, "score": 0.85}])
+    findings = PresidioHttpEngine(cfg, client=client).analyze(
+        ExtractedText(source_id="x", text="MNBUS47KZX transfer")
+    )
+    assert client.last_payload is not None
+    ad_hoc = client.last_payload["ad_hoc_recognizers"]
+    assert ad_hoc[0]["supported_entity"] == "SWIFT_BIC"
+    assert ad_hoc[0]["patterns"][0]["regex"] == r"\b[A-Z]{4}[A-Z0-9]{4,7}\b"
+    assert ad_hoc[0]["context"] == ["swift", "transfer"]
+    assert findings and findings[0].category == "financial"  # custom entity → category
+
+
+def test_no_ad_hoc_key_when_no_custom_recognizers() -> None:
+    """Default: the payload carries no ad_hoc_recognizers (Presidio uses its built-ins only)."""
+    client = _FakeClient([])
+    PresidioHttpEngine(CFG, client=client).analyze(ExtractedText(source_id="x", text="hi"))
+    assert client.last_payload is not None
+    assert "ad_hoc_recognizers" not in client.last_payload

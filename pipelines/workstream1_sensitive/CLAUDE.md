@@ -147,6 +147,23 @@ light. Real engines need `requirements-ml.txt` (+ an endpoint for the LLM).
 - Plan: `docs/plans/2026-09-29-ws1-poc-ui-plan.md` (supersedes the API-only
   `2026-09-29-ws1-api-registry-admin-plan.md`).
 
+## Databricks source + evaluation (2026-09-30)
+
+- **Databricks source backend** — `DatabricksSourceReader` (`libs/source/databricks.py`)
+  implements the `SourceReader` port over a Unity Catalog **volume**: reads the frozen
+  `manifest.jsonl` + document bytes via the Databricks SDK **Files API** (`w.files.download`).
+  Read-only (no write path), in-boundary (Databricks is the customer source, not egress),
+  logs metadata only. `files` client injectable → hermetic tests; `databricks-sdk` lazy.
+  Selected by `source.backend: databricks` (`config/ws1.databricks.yaml`: `root` = volume base,
+  `manifest` relative, `profile` = auth profile or env/OAuth). The pipeline runs **locally**
+  (Docker engines); Databricks is source/sink, not compute.
+- **Evaluation (expected vs actual)** — `libs/eval/golden.py` loads the golden truth
+  (`manifest.jsonl` expected_*/scan + `labels.jsonl`, content-free — no values); `libs/eval/
+  metrics.py` computes flagging precision/recall/F1, per-category P/R, a scanned-vs-born-digital
+  recall cut, and per-record rows. Surfaced at `/admin/eval` + `GET /api/admin/eval`. Truth dir
+  via `WS1_GOLDEN_DIR` (default `datasets/ws1_golden`).
+- Plan: `docs/plans/2026-09-30-ws1-databricks-source-and-eval-plan.md`.
+
 ## Still deferred (review 2026-09-28)
 
 - **Port parity:** relocate `OCRProvider` to `libs/ocr/base.py` + config-swappable

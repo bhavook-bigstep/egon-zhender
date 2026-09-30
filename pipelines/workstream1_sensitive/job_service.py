@@ -22,7 +22,8 @@ from libs.registry import JobRegistry
 from libs.schemas import FlagStatus, Ws1Config
 from pipelines.workstream1_sensitive.job_runner import run_batch, run_single
 from pipelines.workstream1_sensitive.runner import (
-    build_reader,
+    Ws1Context,
+    build_context,
     compute_run_id,
 )
 
@@ -48,6 +49,30 @@ class JobService:
     def __init__(self, config_path: str | Path, registry: JobRegistry) -> None:
         self._config_path = str(config_path)
         self._registry = registry
+        # Warm, process-cached context (SBERT loaded once, manifest cached in the reader).
+        # Reused by the interactive path so a live run starts in ~0.1s instead of paying the
+        # cold model load (~18s) + repeated Databricks manifest downloads (~9s each) per run.
+        # Frozen-manifest assumption (Contract 4) — a source/config change needs a restart.
+        self._warm_ctx: Ws1Context | None = None
+        self._warm_lock = threading.Lock()
+
+    def context(self) -> Ws1Context:
+        """Return the warm context, building it once (thread-safe)."""
+        with self._warm_lock:
+            if self._warm_ctx is None:
+                self._warm_ctx = build_context(load_ws1_config(self._config_path))
+            return self._warm_ctx
+
+    def warm(self) -> None:
+        """Pre-build the context AND cache the manifest (e.g. at app startup, off the request
+        path) so the first live run pays neither the model load nor the manifest download."""
+        self.context().reader.list_manifest()
+
+    def invalidate(self) -> None:
+        """Drop the warm context so the next run rebuilds it — call after config-affecting
+        changes (e.g. custom recognisers edited in the UI)."""
+        with self._warm_lock:
+            self._warm_ctx = None
 
     # --- selection / validation ---
 
@@ -59,7 +84,7 @@ class JobService:
                 f"config_version mismatch: request={request.config_version} "
                 f"config={cfg.config_version}"
             )
-        ids = [entry.source_id for entry in build_reader(cfg).list_manifest()]
+        ids = [entry.source_id for entry in self.context().reader.list_manifest()]
         if request.source_ids is None:
             return ids, None
         missing = [sid for sid in request.source_ids if sid not in set(ids)]
@@ -184,7 +209,8 @@ class JobService:
             yield {"event": "error", "message": err or "no source_ids selected"}
             return
 
-        by_id = {entry.source_id: entry for entry in build_reader(cfg).list_manifest()}
+        ctx = self.context()  # warm: SBERT already loaded, manifest already cached
+        by_id = {entry.source_id: entry for entry in ctx.reader.list_manifest()}
         selected = [by_id[sid] for sid in selected_ids]
         run_id = compute_run_id(selected, cfg)
         # Unique registry id per run so EVERY interactive run is its own history entry
@@ -215,6 +241,7 @@ class JobService:
                     self._config_path,
                     request,
                     on_event=lambda ev: events.put(("stage", ev)),
+                    context=ctx,  # reuse the warm context (no rebuild / re-download)
                 )
                 result.job_id = job_id  # align with the registry id (workbook link)
                 box["result"] = result

@@ -12,7 +12,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from libs.schemas import DetectConfig, ExceptionCode, Finding
-from pipelines.workstream1_sensitive.detect_presidio import map_presidio_results
+from pipelines.workstream1_sensitive.detect_presidio import (
+    map_presidio_results,
+    validators_for,
+)
 from pipelines.workstream1_sensitive.errors import PipelineItemError
 from pipelines.workstream1_sensitive.extract import ExtractedText
 
@@ -56,12 +59,32 @@ class PresidioHttpEngine:
                 raise ValueError("presidio_http engine requires detect.presidio_url")
             self._client = HttpAnalyzeClient(cfg.presidio_url)
 
+    def _ad_hoc_recognizers(self) -> list[dict[str, Any]]:
+        """Config-defined PatternRecognizers, in Presidio's `PatternRecognizer.from_dict`
+        shape — added to the DEFAULT recognisers for this request only (ad-hoc)."""
+        return [
+            {
+                "name": rec.name,
+                "supported_entity": rec.supported_entity,
+                "supported_language": rec.supported_language,
+                "patterns": [
+                    {"name": p.name, "regex": p.regex, "score": p.score}
+                    for p in rec.patterns
+                ],
+                "context": rec.context,
+            }
+            for rec in self._cfg.custom_recognizers
+        ]
+
     def analyze(self, extracted: ExtractedText) -> list[Finding]:
-        payload = {
+        payload: dict[str, Any] = {
             "text": extracted.text,
             "language": self._cfg.presidio_language,
             "score_threshold": self._cfg.presidio_score_threshold,
         }
+        ad_hoc = self._ad_hoc_recognizers()
+        if ad_hoc:  # augment, never replace, Presidio's built-in recognisers
+            payload["ad_hoc_recognizers"] = ad_hoc
         try:
             raw = self._client.analyze(payload)
         except PipelineItemError:
@@ -81,5 +104,10 @@ class PresidioHttpEngine:
             for item in raw
         ]
         return map_presidio_results(
-            results, self._cfg, extracted.source_id, extracted.spans
+            results,
+            self._cfg,
+            extracted.source_id,
+            extracted.spans,
+            text=extracted.text,
+            validators=validators_for(self._cfg),
         )

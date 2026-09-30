@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Admin · Evaluate{% endblock %}
+{% block content %}
+  <div id="admin">
+    {% set active = "eval" %}
+    {% include "_admin_header.html" %}
+
+    <h2>Evaluation — expected vs actual (golden truth)</h2>
+
+    <div class="tiles" id="eval-tiles">
+      <div class="stat"><div class="n" id="e-precision">—</div><div class="k">Flag precision</div></div>
+      <div class="stat"><div class="n" id="e-recall">—</div><div class="k">Flag recall</div></div>
+      <div class="stat"><div class="n" id="e-f1">—</div><div class="k">Flag F1</div></div>
+      <div class="stat"><div class="n" id="e-evaluated">—</div><div class="k">Evaluated / truth</div></div>
+    </div>
+
+    <h2>Per category · scanned vs born-digital</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Slice</th><th>Precision</th><th>Recall</th><th>F1 / detail</th></tr></thead>
+        <tbody id="eval-breakdown-body"></tbody>
+      </table>
+    </div>
+
+    <h2>Per record</h2>
+    <div class="controls">
+      <label>Filter
+        <select id="eval-filter">
+          <option value="">all</option>
+          <option value="mismatch">mismatches only</option>
+        </select>
+      </label>
+      <span id="eval-count" class="muted"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Source ID</th><th>Scan</th><th>Expected flag</th><th>Actual flag</th>
+              <th>Flag</th><th>Expected categories</th><th>Actual categories</th><th>Cat</th></tr>
+        </thead>
+        <tbody id="eval-body"></tbody>
+      </table>
+    </div>
+    <p id="eval-empty" class="muted" hidden>No processed records to evaluate yet.</p>
+  </div>
+{% endblock %}

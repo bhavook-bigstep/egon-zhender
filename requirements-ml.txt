@@ -9,3 +9,5 @@ sentence-transformers>=3    # semantic screen embeddings (SBERT)
 scikit-learn>=1.4           # calibration: sigmoid (Platt) / isotonic
 numpy>=1.26                 # calibration fitting
 httpx>=0.27                 # openweight provider: OpenAI-compatible client
+pypdfium2>=4                # OCR preprocess: PDF page rasterisation
+scikit-image>=0.22          # OCR preprocess: Sauvola adaptive binarisation

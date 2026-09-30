@@ -151,20 +151,27 @@ class ReconcileReport(BaseModel):
 
 
 class SourceConfig(BaseModel):
-    backend: str
-    root: str
-    manifest: str
+    backend: str  # sample | databricks
+    root: str  # sample: local dir · databricks: UC volume base /Volumes/<cat>/<schema>/<vol>
+    manifest: str  # path to the frozen manifest, relative to root for the databricks backend
+    profile: str | None = None  # databricks: named auth profile (else env/OAuth default)
 
 
 class InferenceConfig(BaseModel):
-    provider: str  # mock | openweight
+    provider: str  # mock | openweight | anthropic
     model_version: str
     approval_written: bool = False
     is_local: bool = True  # local/dedicated infra vs a managed endpoint
     base_url: str | None = None  # openweight: OpenAI-compatible endpoint
+    # Chat-completions path appended to base_url. Default suits vLLM/Ollama; Gemini's
+    # OpenAI-compat shim uses base_url ".../v1beta/openai" + chat_path "/chat/completions".
+    chat_path: str = "/v1/chat/completions"
     api_key_env: str | None = None  # openweight: env var holding the key (never inline)
     # EZ-held key (env var name) for hashing identifiers before hosted transfer (Contract 2).
     hash_key_env: str | None = None
+    # Max characters of the extracted text sent to the model per span (data minimisation vs
+    # coverage). PoC: a single larger span; production would chunk a long document.
+    max_span_chars: int = 512
     mock_hints: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -191,8 +198,13 @@ class OcrGateConfig(BaseModel):
 
 
 class OcrConfig(BaseModel):
-    provider: str = "stub"  # stub | docling
-    url: str | None = None  # docling: OCR service base URL
+    provider: str = "stub"  # stub | docling | preprocess
+    url: str | None = None  # docling/preprocess: OCR service base URL
+    # preprocess provider: rasterise PDFs + clean images before OCR (degraded-scan recovery).
+    dpi: int = 200  # PDF rasterisation resolution
+    deskew: bool = True
+    denoise: bool = True
+    binarize: bool = True
 
 
 class RecogniserConfig(BaseModel):
@@ -202,6 +214,29 @@ class RecogniserConfig(BaseModel):
     reason_code: str
 
 
+class PatternSpec(BaseModel):
+    """One regex pattern inside a custom Presidio recogniser."""
+
+    name: str
+    regex: str
+    score: float = 0.5  # base confidence for a raw match (context can boost it)
+
+
+class CustomRecogniserConfig(BaseModel):
+    """A user-defined Presidio PatternRecogniser, added to the DEFAULT recognisers per
+    /analyze request (ad-hoc). Map `supported_entity` to a taxonomy category via
+    `category_map`; add it to `deterministic_entities` if the regex is a validated format."""
+
+    name: str
+    supported_entity: str  # the entity_type it emits (e.g. SWIFT_BIC) — map via category_map
+    patterns: list[PatternSpec]
+    context: list[str] = Field(default_factory=list)  # nearby words that boost confidence
+    supported_language: str = "en"
+    # Optional checksum validator (libs.checksums.VALIDATORS key: luhn|iban_mod97|aba_routing).
+    # Set → a match is verified: pass → DETERMINISTIC_MATCH, fail → dropped.
+    validator: str | None = None
+
+
 class DetectConfig(BaseModel):
     engine: str = "regex"  # regex | presidio | presidio_http
     recognisers: list[RecogniserConfig] = Field(default_factory=list)  # regex engine
@@ -209,6 +244,9 @@ class DetectConfig(BaseModel):
     presidio_language: str = "en"
     presidio_score_threshold: float = 0.35  # min confidence for NER entities
     presidio_url: str | None = None  # presidio_http: analyzer service base URL
+    # User-defined recognisers ADDED to Presidio's defaults per request (ad-hoc). Closes
+    # gaps in the built-in set (e.g. SWIFT/BIC, bank routing, PIN) without a container rebuild.
+    custom_recognizers: list[CustomRecogniserConfig] = Field(default_factory=list)
     # Auditable detector version stamped on findings; bump when the image/model changes.
     detector_version: str = "detect-presidio-0.1"
     category_map: dict[str, str] = Field(default_factory=dict)  # entity_type -> category

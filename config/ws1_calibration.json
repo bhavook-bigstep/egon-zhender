@@ -1,0 +1,23 @@
+{
+  "categories": {
+    "financial": {
+      "a": -1.0104119260473705,
+      "b": 0.29879576858500545,
+      "method": "sigmoid",
+      "status": "provisional"
+    },
+    "government_id": {
+      "a": -1.5382544345206928,
+      "b": 0.4050164349661774,
+      "method": "sigmoid",
+      "status": "provisional"
+    },
+    "health": {
+      "a": -0.652677933292512,
+      "b": 0.07895667925739419,
+      "method": "sigmoid",
+      "status": "provisional"
+    }
+  },
+  "version": "cal-golden-0"
+}

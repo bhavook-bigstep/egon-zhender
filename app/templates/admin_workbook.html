@@ -10,14 +10,31 @@
       <a class="btn" href="/api/admin/records/export?fmt=xlsx">Download Excel</a>
       <a class="btn ghost" href="/api/admin/records/export?fmt=csv">CSV</a>
       <a class="btn ghost" href="/api/admin/records/export?fmt=jsonl">JSONL</a>
+      <label>Sort
+        <select id="records-sort">
+          <option value="uncertainty">review queue · least confident first</option>
+          <option value="source">source ID</option>
+        </select>
+      </label>
+      <label>Review
+        <select id="records-review-filter">
+          <option value="">all</option>
+          <option value="pending">pending</option>
+          <option value="accepted">accepted</option>
+          <option value="rejected">rejected</option>
+          <option value="needs_info">needs info</option>
+        </select>
+      </label>
       <span id="records-count" class="muted"></span>
+      <span id="rec-review-msg" class="muted"></span>
     </div>
 
     <div class="table-wrap">
       <table>
         <thead>
           <tr><th>Source ID</th><th>Type</th><th>Status</th><th>Categories</th>
-              <th>Strongest</th><th>Calibration</th><th>Latest job</th></tr>
+              <th>Strongest</th><th>Calibration</th><th>Review</th><th>Adjudicate</th>
+              <th>Latest job</th></tr>
         </thead>
         <tbody id="records-body"></tbody>
       </table>

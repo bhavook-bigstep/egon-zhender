@@ -45,7 +45,7 @@
       {% if next_offset is not none %}
       <button id="more-btn" class="btn ghost"
               hx-get="/ws1/rows?offset={{ next_offset }}" hx-target="#rows" hx-swap="beforeend">
-        Load more
+        Load more <span class="muted">({{ loaded }} of {{ total }})</span>
       </button>
       {% else %}
       <span id="more-btn" class="muted">All {{ total }} items loaded.</span>

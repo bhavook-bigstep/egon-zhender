@@ -57,3 +57,37 @@ def test_ner_entity_maps_to_classifier_score() -> None:
 def test_unmapped_entity_is_skipped() -> None:
     engine = PresidioEngine(CFG, analyzer=_FakeAnalyzer([_FakeResult("URL", 0, 3, 0.9)]))
     assert engine.analyze(_extracted("http://x")) == []
+
+
+def test_checksum_validator_passes_and_fails() -> None:
+    """A custom recogniser with a checksum validator: pass → deterministic, fail → dropped."""
+    from libs.schemas import CustomRecogniserConfig, PatternSpec
+    from pipelines.workstream1_sensitive.detect_presidio import (
+        map_presidio_results,
+        validators_for,
+    )
+
+    cfg = DetectConfig(
+        engine="presidio",
+        category_map={"CARD": "financial"},
+        custom_recognizers=[
+            CustomRecogniserConfig(
+                name="card",
+                supported_entity="CARD",
+                patterns=[PatternSpec(name="card", regex=r"\d{16}", score=0.5)],
+                validator="luhn",
+            )
+        ],
+    )
+    text = "pay 4111111111111111 or 4111111111111112 today"  # first valid Luhn, second not
+    results = [
+        _FakeResult("CARD", 4, 20, 0.5),   # 4111111111111111 → valid
+        _FakeResult("CARD", 24, 40, 0.5),  # 4111111111111112 → invalid checksum → dropped
+    ]
+    findings = map_presidio_results(
+        results, cfg, "x", [], text=text, validators=validators_for(cfg)
+    )
+    assert len(findings) == 1
+    assert findings[0].score_type is ScoreType.DETERMINISTIC_MATCH
+    assert findings[0].rule_id == "CARD:luhn"
+    assert findings[0].score is None

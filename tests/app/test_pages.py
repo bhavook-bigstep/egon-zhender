@@ -110,6 +110,44 @@ def test_admin_records_export_formats(client: TestClient) -> None:
     assert jsonl.text.strip().count("\n") == 4  # 5 records → 5 lines
 
 
+def test_admin_eval_page_renders(client: TestClient) -> None:
+    r = client.get("/admin/eval")
+    assert r.status_code == 200
+    assert 'id="eval-body"' in r.text
+    assert "expected vs actual" in r.text.lower()
+    assert 'href="/admin/eval"' in r.text  # the Evaluate tab
+
+
+def test_admin_eval_api_against_matching_truth(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Eval scores the sample run against a golden truth covering the sample ids."""
+    (tmp_path / "manifest.jsonl").write_text(
+        '{"source_id":"note_001","expected_flag_status":"flagged",'
+        '"expected_categories":["financial"],"scanned":false,"scan_severity":null}\n'
+        '{"source_id":"note_002","expected_flag_status":"not_flagged",'
+        '"expected_categories":[],"scanned":false,"scan_severity":null}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "labels.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setenv("WS1_GOLDEN_DIR", str(tmp_path))
+
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+
+    rep = client.get("/api/admin/eval")
+    body = rep.json()
+    assert body["counts"]["evaluated"] == 2  # only note_001 + note_002 have truth
+    assert body["counts"]["flag_tp"] == 1 and body["counts"]["flag_tn"] == 1
+    assert body["flagging"]["recall"] == 1.0 and body["flagging"]["precision"] == 1.0
+    rows = {r["source_id"]: r for r in body["rows"]}
+    assert rows["note_001"]["flag_match"] and rows["note_002"]["flag_match"]
+    for token in SENSITIVE_TOKENS:
+        assert token not in rep.text  # content-free (no matched values)
+
+
 def test_admin_records_latest_per_input(client: TestClient) -> None:
     """The records workbook has exactly one (deduplicated) row per input, latest job."""
     submitted = client.post(
@@ -185,7 +223,26 @@ def test_matched_content_reveals_when_opted_in(tmp_path: Path) -> None:
         ).json()
         _poll(c, submitted["job_id"])
         r = c.get(f"/jobs/{submitted['job_id']}")
-    assert "Matched content" in r.text and "<mark>" in r.text  # span shown + highlighted
+        # Page renders WITHOUT eager reveal (no re-extraction of every doc): no span inline.
+        assert "fc-match-slot" in r.text and "<mark>" not in r.text
+        # Reveal is lazy per-record: the dialog fetches one record's span on open.
+        flagged = next(
+            row["source_id"]
+            for row in c.get("/api/admin/records").json()["records"]
+            if row["flag_status"] == "flagged"
+        )
+        rev = c.get(f"/api/jobs/{submitted['job_id']}/reveal?source_id={flagged}").json()
+    assert rev["spans"] and rev["spans"][0]["char_match"]  # matched span served on demand
+
+
+def test_reveal_endpoint_gated_off_by_default(client: TestClient) -> None:
+    """Without reveal enabled, the per-record reveal endpoint returns no spans."""
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+    body = client.get(f"/api/jobs/{submitted['job_id']}/reveal?source_id=note_001").json()
+    assert body["spans"] == []
 
 
 def _stream_detect_record(c: TestClient, source_id: str) -> dict:
@@ -310,3 +367,123 @@ def test_results_page_job_without_result_renders_200(tmp_path: Path) -> None:
         r = c.get(f"/jobs/{submitted['job_id']}")
     assert r.status_code == 200
     assert "No rows yet" in r.text
+
+
+def test_manifest_fetched_once_across_pagination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The frozen manifest is fetched once; paginating the source browser never re-reads
+    the source (matters for the Databricks backend — no repeated manifest downloads)."""
+    import app.main as appmain
+
+    base = yaml.safe_load(Path("config/ws1.yaml").read_text(encoding="utf-8"))
+    base["output"]["result_dir"] = str(tmp_path / "out")
+    cfg_path = tmp_path / "ws1.yaml"
+    cfg_path.write_text(yaml.safe_dump(base), encoding="utf-8")
+
+    calls = {"n": 0}
+    real_build_reader = appmain.build_reader
+
+    def counting_build_reader(cfg: object) -> object:
+        calls["n"] += 1
+        return real_build_reader(cfg)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(appmain, "build_reader", counting_build_reader)
+
+    app = create_app(str(cfg_path), str(tmp_path / "r.db"), start_worker=False)
+    with TestClient(app) as c:
+        assert c.get("/ws1").status_code == 200
+        assert c.get("/ws1/rows?offset=100").status_code == 200
+        assert c.get("/api/source/manifest?offset=0").status_code == 200
+    assert calls["n"] == 1  # one manifest read across three paginated requests
+
+
+def test_recognizers_page_renders(client: TestClient) -> None:
+    r = client.get("/admin/recognizers")
+    assert r.status_code == 200
+    assert 'id="rec-form"' in r.text
+    assert 'href="/admin/recognizers"' in r.text  # the Recognizers tab
+
+
+def test_recognizers_crud_api(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Add / list / delete custom recognizers via the admin API (validated, persisted)."""
+    monkeypatch.setenv("WS1_RECOGNIZERS_FILE", str(tmp_path / "rec.json"))
+    assert client.get("/api/admin/recognizers").json()["recognizers"] == []
+
+    ok = client.post(
+        "/api/admin/recognizers",
+        json={
+            "name": "swift", "supported_entity": "SWIFT_BIC", "category": "financial",
+            "regex": r"\b[A-Z]{4}[A-Z0-9]{4,7}\b", "score": 0.3, "context": ["swift"],
+        },
+    )
+    assert ok.status_code == 200
+    assert ok.json()["recognizers"][0]["supported_entity"] == "SWIFT_BIC"
+    # persisted across requests
+    assert client.get("/api/admin/recognizers").json()["recognizers"][0]["name"] == "swift"
+
+    # category must be in the taxonomy → 400
+    bad_cat = client.post(
+        "/api/admin/recognizers",
+        json={"name": "x", "supported_entity": "Y", "category": "nope", "regex": "a"},
+    )
+    assert bad_cat.status_code == 400
+    # duplicate name → 400
+    dup = client.post(
+        "/api/admin/recognizers",
+        json={
+            "name": "swift", "supported_entity": "SWIFT_BIC",
+            "category": "financial", "regex": "a",
+        },
+    )
+    assert dup.status_code == 400
+    # invalid regex → 422 (body validation)
+    bad_re = client.post(
+        "/api/admin/recognizers",
+        json={"name": "z", "supported_entity": "Y", "category": "financial", "regex": "(["},
+    )
+    assert bad_re.status_code == 422
+
+    client.delete("/api/admin/recognizers/swift")
+    assert client.get("/api/admin/recognizers").json()["recognizers"] == []
+
+
+def test_workbook_page_has_adjudication_controls(client: TestClient) -> None:
+    r = client.get("/admin/workbook")
+    assert r.status_code == 200
+    assert 'id="records-sort"' in r.text and 'id="records-review-filter"' in r.text
+
+
+def test_review_adjudication_flow(client: TestClient) -> None:
+    """Record a reviewer decision; it surfaces in records + reviews + export, content-free."""
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+    recs = client.get("/api/admin/records").json()["records"]
+    assert recs and all(r["review_status"] == "pending" for r in recs)  # default
+    sid = recs[0]["source_id"]
+
+    ok = client.post(
+        "/api/admin/reviews",
+        json={"source_id": sid, "job_id": recs[0]["job_id"],
+              "status": "accepted", "rationale": "looks correct"},
+    )
+    assert ok.status_code == 200 and ok.json()["review"]["status"] == "accepted"
+
+    merged = {x["source_id"]: x for x in client.get("/api/admin/records").json()["records"]}
+    assert merged[sid]["review_status"] == "accepted"
+    assert merged[sid]["reviewer"] == "operator"
+    assert client.get("/api/admin/reviews").json()["reviews"][sid]["status"] == "accepted"
+
+    bad_status = client.post("/api/admin/reviews", json={"source_id": sid, "status": "nope"})
+    assert bad_status.status_code == 400
+    no_id = client.post("/api/admin/reviews", json={"status": "accepted"})
+    assert no_id.status_code == 400
+
+    exp = client.get("/api/admin/records/export?fmt=csv")
+    assert "review_status" in exp.text and "rationale" in exp.text and "looks correct" in exp.text
+    for token in SENSITIVE_TOKENS:
+        assert token not in exp.text  # reviewer text only, no source content

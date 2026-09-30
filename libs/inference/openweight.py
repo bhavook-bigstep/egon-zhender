@@ -12,14 +12,16 @@ Egress: `crosses_boundary` is set by the caller from `is_local`; a managed endpo
 
 from __future__ import annotations
 
-import json
 from typing import Any, Protocol, runtime_checkable
 
 from libs.inference.base import (
+    SCORE_SYSTEM_PROMPT,
     InferenceProvider,
     InferenceRequest,
     InferenceResult,
     ensure_egress_allowed,
+    parse_score_text,
+    score_user_content,
 )
 from libs.schemas import CalibrationStatus
 
@@ -35,11 +37,17 @@ class HttpChatClient(ChatClient):
     """Real OpenAI-compatible client (lazy-imports httpx)."""
 
     def __init__(
-        self, base_url: str, api_key: str | None = None, timeout: float = 30.0
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        timeout: float = 30.0,
+        chat_path: str = "/v1/chat/completions",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
+        # vLLM: /v1/chat/completions · Gemini shim: /chat/completions
+        self._chat_path = "/" + chat_path.strip("/")
 
     def complete(self, payload: dict[str, Any]) -> dict[str, Any]:
         import httpx  # lazy: only needed for a real endpoint
@@ -48,7 +56,7 @@ class HttpChatClient(ChatClient):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         response = httpx.post(
-            f"{self._base_url}/v1/chat/completions",
+            f"{self._base_url}{self._chat_path}",
             json=payload,
             headers=headers,
             timeout=self._timeout,  # timeout on every external call (performance rule)
@@ -90,27 +98,21 @@ class OpenWeightProvider(InferenceProvider):
             "model": self._model_version,
             "temperature": 0,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You score how strongly a text span contains the given "
-                        "sensitivity category. Reply only as JSON {\"score\": 0-100}."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"category: {request.category}\nspan: {request.text}",
-                },
+                {"role": "system", "content": SCORE_SYSTEM_PROMPT},
+                {"role": "user", "content": score_user_content(request.category, request.text)},
             ],
-            "response_format": {"type": "json_schema", "json_schema": {"schema": schema}},
+            "response_format": {
+                # `name` is required by the OpenAI json_schema spec and by Gemini's
+                # OpenAI-compat shim; vLLM tolerates it. Keeps structured output portable.
+                "type": "json_schema",
+                "json_schema": {"name": "sensitivity_score", "schema": schema},
+            },
         }
 
     @staticmethod
     def _parse_score(response: dict[str, Any]) -> float:
         content = response["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-        score = float(parsed["score"])
-        return max(0.0, min(100.0, score))
+        return parse_score_text(content)
 
     def assess(self, request: InferenceRequest) -> InferenceResult:
         ensure_egress_allowed(request, self._approval_written)

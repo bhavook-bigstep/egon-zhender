@@ -1,0 +1,131 @@
+# WS-1 config with the GOLDEN DATASET read from Databricks (Unity Catalog volume) as the
+# read-only source. The pipeline still runs LOCALLY (Docker engines); Databricks is the
+# source. Auth: set DATABRICKS_CONFIG_PROFILE (or DATABRICKS_HOST + DATABRICKS_TOKEN) in the
+# environment, or put your profile name in source.profile below.
+config_version: ws1-0.1.0-databricks
+seed: 1729
+
+# DEMO / synthetic golden set — matched-value reveal off by default (flip only for review).
+reveal_matched_content: false
+
+source:
+  backend: databricks
+  root: /Volumes/workspace/prince_houston/ws1_golden   # UC volume base
+  manifest: manifest.jsonl                             # relative to root (JSONL)
+  profile: null                                        # e.g. "you@example.com"; null = env/OAuth default
+
+inference:
+  # ⚠️ DEMO ONLY — SYNTHETIC golden data. This sends document spans to a managed external
+  # LLM (Contract 2 egress). NEVER point this config at the real Prince Houston corpus. For
+  # the real engagement, use an open-weight model on customer-controlled infra
+  # (provider: openweight → local vLLM/Ollama, is_local: true).
+  #
+  # ACTIVE: Anthropic (Messages API). Selectable alternative below: Gemini.
+  provider: anthropic
+  model_version: claude-haiku-4-5-20251001   # fast/cheap classifier; demo-only
+  is_local: false            # managed endpoint — the egress guard enforces approval
+  approval_written: true     # demo self-approval on synthetic data (not a real EZ approval)
+  base_url: https://api.anthropic.com
+  api_key_env: ANTHROPIC_API_KEY
+  # Contract 2 layer 2: identifiers in the span are keyed-hashed BEFORE hosted transfer.
+  # Required whenever is_local=false. Demo key in .env; production = the EZ-held key.
+  hash_key_env: WS1_HASH_KEY
+  # Span sent to the model per category. Demo: cover a whole golden doc in one span
+  # (evidence can be anywhere — gold-0001's SWIFT code is at char ~669). Production: chunk.
+  max_span_chars: 8000
+  # --- Selectable alternative: Gemini (OpenAI-compat shim) ---
+  # Comment the Anthropic lines above and uncomment these to route to Gemini instead
+  # (needs GEMINI_API_KEY with billing). Same DEMO-ONLY / Contract-2 caveats.
+  # provider: openweight
+  # model_version: gemini-flash-latest
+  # is_local: false
+  # approval_written: true
+  # base_url: https://generativelanguage.googleapis.com/v1beta/openai
+  # chat_path: /chat/completions
+  # api_key_env: GEMINI_API_KEY
+
+semantic:
+  enabled: true
+  model: sentence-transformers/all-MiniLM-L6-v2
+  route_threshold: 0.1     # demo: permissive gate so more spans reach the LLM (catches the
+                           # open-set types Presidio can't, e.g. gold-0001's SWIFT/BIC code)
+  threshold_version: sem-1
+  examples:
+    financial:
+      - "annual salary and compensation package"
+      - "bank account IBAN and card payment details"
+      - "bonus and equity award"
+    government_id:
+      - "passport number"
+      - "social security number"
+      - "driver licence and national identity document"
+    health:
+      - "medical diagnosis and clinical condition"
+      - "patient treatment and medication under specialist care"
+
+extract:
+  engine: docling           # handles pdf/docx/xlsx/png (OCR) via the container
+  docling_url: http://localhost:5001
+
+ocr_gate:
+  min_text_density: 0.15
+  min_printable_ratio: 0.85
+  max_image_coverage: 0.5
+
+ocr:
+  # Preprocess (deskew/denoise/adaptive-binarise) + rasterise PDFs before OCR, to recover
+  # degraded scans docling returns empty for. Needs requirements-ml.txt (pypdfium2, scikit-image).
+  provider: preprocess
+  url: http://localhost:5001
+  dpi: 200
+
+taxonomy:
+  version: poc-synth-0
+  categories:
+    - financial
+    - government_id
+    - health
+
+detect:
+  engine: presidio_http
+  presidio_url: http://localhost:3001
+  presidio_score_threshold: 0.35   # lower = more recall (some precision cost); tune on eval
+  detector_version: detect-presidio-0.2
+  # Custom recognisers are managed in the ADMIN UI (/admin/recognizers) — added on top of
+  # Presidio's built-ins per request. They persist to the git-ignored overlay file
+  # (WS1_RECOGNIZERS_FILE, default poc/custom_recognizers.json) and their entity→category
+  # mapping is merged in automatically. Baseline recognisers for a governed run can still be
+  # listed here as `custom_recognizers:` (with category_map entries); left empty by default.
+  custom_recognizers: []
+  category_map:
+    # Every Presidio built-in that maps to our taxonomy (see supported_entities.md).
+    # Covers the standard numeric IDs; alphanumeric/structural types (SWIFT/BIC, PIN,
+    # blood type, VIN, MRN) have NO Presidio recognizer and need the model layer.
+    CREDIT_CARD: financial
+    IBAN_CODE: financial
+    US_BANK_NUMBER: financial
+    CRYPTO: financial
+    US_SSN: government_id
+    US_ITIN: government_id
+    US_PASSPORT: government_id
+    US_DRIVER_LICENSE: government_id
+    MEDICAL_LICENSE: health
+  deterministic_entities:
+    - CREDIT_CARD
+
+scoring:
+  flag_threshold: 40.0
+  band_high: 80.0
+  band_medium: 60.0
+  calibration:
+    # Fitted from the golden run via `python -m pipelines.workstream1_sensitive.calibrate_from_golden`.
+    # Small truth set → status is PROVISIONAL per §3.3 (needs ≥100 positives/category for CALIBRATED).
+    artefact: config/ws1_calibration.json
+    version: cal-0
+    min_positives: 100
+    max_holdout_error: 5.0
+    method: sigmoid
+
+output:
+  result_dir: poc/out-databricks
+  format: jsonl

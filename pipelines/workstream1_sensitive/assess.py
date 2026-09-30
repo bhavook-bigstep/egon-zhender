@@ -32,6 +32,7 @@ def assess(
     scoring: ScoringConfig,
     provider: InferenceProvider,
     hash_key_env: str | None = None,
+    max_span_chars: int = _MAX_SPAN_CHARS,
 ) -> list[Finding]:
     """Return raw MODEL_SCORE findings for categories that clear the flag threshold.
 
@@ -40,7 +41,7 @@ def assess(
     """
     if not extracted.text.strip():
         return []
-    span = extracted.text[:_MAX_SPAN_CHARS]
+    span = extracted.text[:max_span_chars]
     crosses_boundary = not provider.is_local
     if crosses_boundary:
         span = mask_identifiers(span, load_key(hash_key_env))

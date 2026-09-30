@@ -174,37 +174,55 @@ function recordsTable(records) {
 }
 // Horizontal pipeline: each step is a compact clickable node; full detail + raw output
 // open in a dialog on click.
-function renderStep(container, msg, index) {
-  if (index > 1) {
-    const arrow = document.createElement("div");
-    arrow.className = "step-arrow";
-    arrow.textContent = "→";
-    container.appendChild(arrow);
-  }
-  const node = document.createElement("div");
-  node.className = "step-node " + (msg.exception_code ? "failed" : "done");
-  node.setAttribute("role", "button");
-  node.tabIndex = 0;
-  const no = document.createElement("span");
-  no.className = "step-no";
-  no.textContent = "STEP " + index;
-  const name = document.createElement("span");
-  name.className = "step-name";
-  name.textContent = STEP_LABELS[msg.stage] || msg.stage;
-  const out = document.createElement("span");
-  out.className = "chip" + (msg.exception_code ? " unable_to_process" : "");
-  out.textContent = msg.exception_code || msg.outcome;
-  node.appendChild(no);
-  node.appendChild(name);
-  node.appendChild(out);
-  node.addEventListener("click", () => openStepDialog(msg, index));
-  node.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      openStepDialog(msg, index);
+function fmtBytes(n) {
+  if (n == null) return "";
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+  return n + " B";
+}
+function fmtDur(ms) {
+  return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
+}
+function stepMetric(msg) {
+  const d = msg.detail || {};
+  switch (msg.stage) {
+    case "ingest": return fmtBytes(d.bytes);
+    case "extract": return d.chars != null ? d.chars + " chars" : msg.outcome || "";
+    case "ocr_gate": return msg.outcome || "";
+    case "detect": { const n = d.detections || 0; return n + (n === 1 ? " hit" : " hits"); }
+    case "screen": { const n = d.routed_categories || 0; return n + " routed"; }
+    case "assess": { const n = d.model_findings || 0; return n + (n === 1 ? " finding" : " findings"); }
+    case "score": {
+      let s = msg.outcome || "";
+      if (d.strongest_score != null) s += " · " + Number(d.strongest_score).toFixed(0);
+      if (d.band) s += " · " + d.band;
+      return s;
     }
-  });
-  container.appendChild(node);
+    default: return msg.outcome || "";
+  }
+}
+function showOutcome(el, r) {
+  el.textContent = "";
+  el.hidden = false;
+  el.className = "live-outcome " + (r.flag_status || "");
+  const label = document.createElement("strong");
+  label.textContent = "Result ";
+  const chip = document.createElement("span");
+  chip.className = "chip " + (r.flag_status || "");
+  chip.textContent = r.flag_status || "—";
+  const cats = document.createElement("span");
+  cats.className = "lo-cats";
+  cats.textContent = (r.sensitivity_categories || []).join(", ") || "no categories";
+  let scoreText2 = r.strongest_score_type || "";
+  if (r.strongest_band) scoreText2 += " · " + r.strongest_band;
+  if (r.strongest_score != null) scoreText2 += " · " + Number(r.strongest_score).toFixed(1);
+  const score = document.createElement("span");
+  score.className = "muted lo-score";
+  score.textContent = scoreText2;
+  el.appendChild(label);
+  el.appendChild(chip);
+  el.appendChild(cats);
+  if (scoreText2) el.appendChild(score);
 }
 
 function _section(label) {
@@ -352,9 +370,117 @@ function initLive() {
   const sourceId = root.dataset.sourceId;
   const timeline = document.getElementById("timeline");
   const findings = document.getElementById("findings-body");
-  const status = document.getElementById("live-status");
+  // The stepper itself conveys progress; the old status text bar was removed. This no-op
+  // wrapper keeps the status writes harmless if the element isn't present.
+  const statusEl = document.getElementById("live-status");
+  const status = {
+    get textContent() { return statusEl ? statusEl.textContent : ""; },
+    set textContent(v) { if (statusEl) statusEl.textContent = v; },
+  };
 
-  let stepNo = 0;
+  const outcome = document.getElementById("live-outcome");
+  const STEP_ORDER = ["ingest", "extract", "ocr_gate", "detect", "screen", "assess", "score"];
+  const nodes = {};  // stage -> its step card
+  let runStart = 0;
+  let runningStage = null;
+  let failed = false;
+
+  timeline.textContent = "";
+
+  // Only ran + running steps are shown (no pending placeholders). New cards are appended
+  // with a FLIP animation: existing cards slide to their new centered positions while the
+  // new one slides in — so the row stays centered with a smooth side shift.
+  function flipAppend(newNodes) {
+    const prev = new Map();
+    Array.prototype.forEach.call(timeline.children, (el) => prev.set(el, el.getBoundingClientRect().left));
+    newNodes.forEach((n) => timeline.appendChild(n));
+    Array.prototype.forEach.call(timeline.children, (el) => {
+      if (prev.has(el)) {
+        const dx = prev.get(el) - el.getBoundingClientRect().left;
+        if (dx) {
+          el.style.transition = "none";
+          el.style.transform = "translateX(" + dx + "px)";
+          requestAnimationFrame(() => {
+            el.style.transition = "transform .38s ease";
+            el.style.transform = "";
+          });
+        }
+      } else {
+        el.classList.add("step-in");
+      }
+    });
+  }
+
+  function makeRunningCard(stage) {
+    const node = document.createElement("div");
+    node.className = "step-node running";
+    const badge = document.createElement("div");
+    badge.className = "step-badge";
+    const num = document.createElement("span");
+    num.className = "step-badge-num";
+    num.textContent = String(STEP_ORDER.indexOf(stage) + 1);
+    badge.appendChild(num);
+    const name = document.createElement("div");
+    name.className = "step-name";
+    name.textContent = STEP_LABELS[stage] || stage;
+    const metric = document.createElement("div");
+    metric.className = "step-metric";
+    const dur = document.createElement("div");
+    dur.className = "step-dur";
+    node.appendChild(badge);
+    node.appendChild(name);
+    node.appendChild(metric);
+    node.appendChild(dur);
+    return node;
+  }
+
+  function advanceTo(stage) {
+    const node = makeRunningCard(stage);
+    flipAppend([node]);  // connectors are drawn via CSS, so no separate arrow element
+    nodes[stage] = node;
+    runningStage = stage;
+    runStart = Date.now();
+    node.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    const pos = STEP_ORDER.indexOf(stage) + 1;
+    status.textContent =
+      "Processing: " + (STEP_LABELS[stage] || stage) + "… (" + pos + "/" + STEP_ORDER.length + ")";
+  }
+
+  function settle(node, failLabel, metricText) {
+    node.className = "step-node " + (failLabel ? "failed" : "done");
+    node.querySelector(".step-badge-num").textContent = failLabel ? "✕" : "✓";
+    if (metricText != null) node.querySelector(".step-metric").textContent = metricText;
+    node.querySelector(".step-dur").textContent = fmtDur(Date.now() - runStart);
+  }
+
+  function stopRunning(failLabel) {
+    // End the running step — mark it failed (with a label) or just settle it.
+    if (!runningStage) return;
+    const node = nodes[runningStage];
+    if (node && node.classList.contains("running")) settle(node, failLabel, failLabel || null);
+    runningStage = null;
+  }
+
+  function setDone(msg) {
+    const node = nodes[msg.stage];
+    if (!node) return;
+    const failLabel = msg.exception_code || "";
+    settle(node, failLabel, failLabel || stepMetric(msg));
+    const index = STEP_ORDER.indexOf(msg.stage) + 1;
+    node.setAttribute("role", "button");
+    node.tabIndex = 0;
+    const open = () => openStepDialog(msg, index);
+    node.onclick = open;
+    node.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        open();
+      }
+    };
+  }
+
+  advanceTo(STEP_ORDER[0]);  // start with just the first step, running and centered
+
   const es = new EventSource("/api/interactive/stream?source_id=" + encodeURIComponent(sourceId));
   es.onmessage = (ev) => {
     let msg;
@@ -364,8 +490,24 @@ function initLive() {
       return;
     }
     if (msg.event === "stage") {
-      stepNo += 1;
-      renderStep(timeline, msg, stepNo);
+      if (nodes[msg.stage]) {
+        setDone(msg);
+        if (msg.stage === runningStage) runningStage = null;
+        if (msg.exception_code) {
+          failed = true;
+          status.textContent = "Failed at " + (STEP_LABELS[msg.stage] || msg.stage);
+        } else {
+          const next = STEP_ORDER[STEP_ORDER.indexOf(msg.stage) + 1];
+          if (next) advanceTo(next);
+          else status.textContent = "Finalising…";
+        }
+      } else if (msg.exception_code) {
+        // Failure catch-all (e.g. stage "pipeline"): fail the step currently running so its
+        // animation stops instead of spinning forever.
+        failed = true;
+        stopRunning(msg.exception_code);
+        status.textContent = "Failed: " + msg.exception_code;
+      }
     } else if (msg.event === "item") {
       const r = msg.row;
       const tr = document.createElement("tr");
@@ -379,8 +521,10 @@ function initLive() {
       tr.appendChild(cell(r.exception_code));
       tr.appendChild(cell(r.reason_summary));
       findings.appendChild(tr);
+      if (outcome) showOutcome(outcome, r);
     } else if (msg.event === "done") {
-      status.textContent = "Completed.";
+      stopRunning();  // settle any step still marked running
+      status.textContent = failed ? "Stopped — unable to process." : "Completed.";
       const jobId = msg.result && msg.result.job_id;
       if (jobId) {
         const a = document.getElementById("to-workbook");
@@ -389,12 +533,15 @@ function initLive() {
       }
       es.close();
     } else if (msg.event === "error") {
+      failed = true;
+      stopRunning(msg.message || "error");
       status.textContent = "Error: " + msg.message;
       es.close();
     }
   };
   es.onerror = () => {
-    status.textContent = "Stream closed.";
+    stopRunning();  // connection dropped → stop the animation
+    if (status.textContent.indexOf("Processing") === 0) status.textContent = "Stream closed.";
     es.close();
   };
 }
@@ -433,6 +580,23 @@ function initAdmin() {
     setInterval(refreshRecords, 4000);
   }
 
+  // Only the Evaluate sub-page has the eval table.
+  if (document.getElementById("eval-body")) {
+    async function refreshEval() {
+      let data;
+      try {
+        data = await (await fetch("/api/admin/eval")).json();
+      } catch (e) {
+        return;
+      }
+      renderEval(data);
+    }
+    const filterEl = document.getElementById("eval-filter");
+    if (filterEl) filterEl.addEventListener("change", renderEvalRows);
+    refreshEval();
+    setInterval(refreshEval, 5000);
+  }
+
   root.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
@@ -449,39 +613,204 @@ function initAdmin() {
   });
 }
 
+let _recordsCache = [];
+let _recordsBound = false;
 function renderRecords(records) {
+  _recordsCache = records;
+  if (!_recordsBound) {
+    _recordsBound = true;
+    ["records-sort", "records-review-filter"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("change", applyRecordsView);
+    });
+    const body = document.getElementById("records-body");
+    if (body) body.addEventListener("click", onAdjudicate);
+  }
+  applyRecordsView();
+}
+function applyRecordsView() {
   const body = document.getElementById("records-body");
-  const empty = document.getElementById("records-empty");
   if (!body) return;
+  const empty = document.getElementById("records-empty");
+  const sortEl = document.getElementById("records-sort");
+  const filterEl = document.getElementById("records-review-filter");
+  const sortBy = sortEl ? sortEl.value : "uncertainty";
+  const wantStatus = filterEl ? filterEl.value : "";
+
+  let rows = _recordsCache.slice();
+  if (wantStatus) rows = rows.filter((r) => (r.review_status || "pending") === wantStatus);
+  if (sortBy === "uncertainty") {
+    // least-confident first: ascending strongest_score, missing score treated as most certain
+    const conf = (r) => (r.strongest_score == null ? Infinity : Number(r.strongest_score));
+    rows.sort((a, b) => conf(a) - conf(b));
+  } else {
+    rows.sort((a, b) => String(a.source_id).localeCompare(String(b.source_id)));
+  }
   body.textContent = "";
-  if (empty) empty.hidden = records.length > 0;
+  if (empty) empty.hidden = _recordsCache.length > 0;
   const count = document.getElementById("records-count");
-  if (count) count.textContent = records.length + " records";
-  records.forEach((r) => {
-    const tr = document.createElement("tr");
-    tr.appendChild(cell(r.source_id, "mono"));
-    tr.appendChild(cell(r.content_type));
-    tr.appendChild(chipCell(r.flag_status, r.flag_status));
-    tr.appendChild(cell((r.sensitivity_categories || []).join(", ")));
-    let strong = r.strongest_score_type || "—";
-    if (r.strongest_band) strong += " · " + r.strongest_band;
-    if (r.strongest_score != null) strong += " · " + Number(r.strongest_score).toFixed(1);
-    tr.appendChild(cell(strong));
-    tr.appendChild(cell(r.calibration_status));
-    const td = document.createElement("td");
-    const a = document.createElement("a");
-    a.className = "btn ghost";
-    a.href = "/jobs/" + encodeURIComponent(r.job_id);
-    a.textContent = "results";
-    td.appendChild(a);
-    tr.appendChild(td);
-    body.appendChild(tr);
+  if (count) count.textContent = rows.length + " shown";
+  rows.forEach((r) => body.appendChild(recordRow(r)));
+}
+function recordRow(r) {
+  const tr = document.createElement("tr");
+  tr.appendChild(cell(r.source_id, "mono"));
+  tr.appendChild(cell(r.content_type));
+  tr.appendChild(chipCell(r.flag_status, r.flag_status));
+  tr.appendChild(cell((r.sensitivity_categories || []).join(", ")));
+  let strong = r.strongest_score_type || "—";
+  if (r.strongest_band) strong += " · " + r.strongest_band;
+  if (r.strongest_score != null) strong += " · " + Number(r.strongest_score).toFixed(1);
+  tr.appendChild(cell(strong));
+  tr.appendChild(cell(r.calibration_status));
+  tr.appendChild(chipCell(r.review_status || "pending", r.review_status || "pending"));
+  // adjudicate cell: rationale + accept/reject/needs-info
+  const adj = document.createElement("td");
+  const rat = document.createElement("input");
+  rat.className = "rec-rationale";
+  rat.placeholder = "rationale";
+  rat.value = r.rationale || "";
+  adj.appendChild(rat);
+  [["accepted", "Accept"], ["rejected", "Reject"], ["needs_info", "Info"]].forEach(([st, label]) => {
+    const b = document.createElement("button");
+    b.className = "ghost";
+    b.textContent = label;
+    b.dataset.review = st;
+    b.dataset.src = r.source_id;
+    b.dataset.job = r.job_id || "";
+    adj.appendChild(b);
   });
+  tr.appendChild(adj);
+  const td = document.createElement("td");
+  const a = document.createElement("a");
+  a.className = "btn ghost";
+  a.href = "/jobs/" + encodeURIComponent(r.job_id);
+  a.textContent = "results";
+  td.appendChild(a);
+  tr.appendChild(td);
+  return tr;
+}
+async function onAdjudicate(e) {
+  const btn = e.target.closest("button[data-review]");
+  if (!btn) return;
+  const cellRat = btn.parentElement.querySelector(".rec-rationale");
+  const msg = document.getElementById("rec-review-msg");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/admin/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_id: btn.dataset.src,
+        job_id: btn.dataset.job,
+        status: btn.dataset.review,
+        rationale: cellRat ? cellRat.value : "",
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (msg) msg.textContent = data.error || "Could not save the decision.";
+      btn.disabled = false;
+      return;
+    }
+    // update the cached record so the view reflects the decision without a refetch
+    const rec = _recordsCache.find((x) => x.source_id === btn.dataset.src);
+    if (rec) {
+      rec.review_status = data.review.status;
+      rec.reviewer = data.review.reviewer;
+      rec.rationale = data.review.rationale;
+      rec.decided_at = data.review.decided_at;
+    }
+    if (msg) msg.textContent = "Recorded: " + btn.dataset.src + " → " + data.review.status;
+    applyRecordsView();
+  } catch (err) {
+    if (msg) msg.textContent = "Could not save the decision.";
+    btn.disabled = false;
+  }
 }
 
 function setNum(id, v) {
   const el = document.getElementById(id);
   if (el) el.textContent = v;
+}
+
+// ---- evaluation (expected vs actual) -----------------------------------
+let _evalReport = null;
+function renderEval(report) {
+  _evalReport = report;
+  const f = report.flagging || {};
+  const c = report.counts || {};
+  setNum("e-precision", f.precision != null ? f.precision : "—");
+  setNum("e-recall", f.recall != null ? f.recall : "—");
+  setNum("e-f1", f.f1 != null ? f.f1 : "—");
+  setNum("e-evaluated", (c.evaluated || 0) + " / " + (c.truth_records || 0));
+
+  const bb = document.getElementById("eval-breakdown-body");
+  if (bb) {
+    bb.textContent = "";
+    const bc = report.by_category || {};
+    (report.categories || []).forEach((cat) => {
+      const m = bc[cat];
+      if (!m) return;
+      const tr = document.createElement("tr");
+      tr.appendChild(cell(cat));
+      tr.appendChild(cell(m.precision));
+      tr.appendChild(cell(m.recall));
+      tr.appendChild(cell("F1 " + m.f1 + " · tp " + m.tp + " fp " + m.fp + " fn " + m.fn));
+      bb.appendChild(tr);
+    });
+    const bs = report.by_scanned || {};
+    [["scanned", "scanned"], ["born_digital", "born-digital"]].forEach(([k, label]) => {
+      const s = bs[k];
+      if (!s) return;
+      const tr = document.createElement("tr");
+      tr.appendChild(cell(label + " (flag recall)"));
+      tr.appendChild(cell("—"));
+      tr.appendChild(cell(s.recall));
+      tr.appendChild(cell(s.found + " / " + s.expected + " expected flags found"));
+      bb.appendChild(tr);
+    });
+    const cal = report.calibration || {};
+    Object.keys(cal).forEach((status) => {
+      const tr = document.createElement("tr");
+      tr.appendChild(cell("calibration · " + status));
+      tr.appendChild(cell("—"));
+      tr.appendChild(cell("—"));
+      tr.appendChild(cell(cal[status] + " rows"));
+      bb.appendChild(tr);
+    });
+  }
+  renderEvalRows();
+}
+function matchMark(v) {
+  // null = unable_to_process (a processing failure, not a determination) — never a fake ✓/✗
+  if (v == null) return "—";
+  return v ? "✓" : "✗";
+}
+function renderEvalRows() {
+  const body = document.getElementById("eval-body");
+  if (!body || !_evalReport) return;
+  const empty = document.getElementById("eval-empty");
+  const count = document.getElementById("eval-count");
+  const filterEl = document.getElementById("eval-filter");
+  const onlyMismatch = filterEl && filterEl.value === "mismatch";
+  let rows = _evalReport.rows || [];
+  if (onlyMismatch) rows = rows.filter((r) => !r.flag_match || !r.categories_match);
+  body.textContent = "";
+  if (empty) empty.hidden = (_evalReport.rows || []).length > 0;
+  if (count) count.textContent = rows.length + " shown";
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(r.source_id, "mono"));
+    tr.appendChild(cell(r.scanned ? "scan " + (r.scan_severity || "") : "digital"));
+    tr.appendChild(chipCell(r.expected_flag_status, r.expected_flag_status));
+    tr.appendChild(chipCell(r.actual_flag_status, r.actual_flag_status));
+    tr.appendChild(cell(matchMark(r.flag_match)));
+    tr.appendChild(cell((r.expected_categories || []).join(", ") || "—"));
+    tr.appendChild(cell((r.actual_categories || []).join(", ") || "—"));
+    tr.appendChild(cell(matchMark(r.categories_match)));
+    body.appendChild(tr);
+  });
 }
 
 function renderSummary(s) {
@@ -539,12 +868,77 @@ function renderJobs(jobs) {
 }
 
 // ---- findings modal dialogs -------------------------------------------
+const _MATCH_LABEL = "Matched content · PoC · re-read from source in-boundary, not stored";
+function matchLabel() {
+  const label = document.createElement("div");
+  label.className = "fc-match-label";
+  label.textContent = _MATCH_LABEL;
+  return label;
+}
+function matchSkeleton() {
+  // Placeholder shown immediately while the span is fetched (one read from source).
+  const wrap = document.createElement("div");
+  wrap.className = "fc-match loading";
+  const bar = document.createElement("div");
+  bar.className = "fc-match-skeleton";
+  wrap.appendChild(matchLabel());
+  wrap.appendChild(bar);
+  return wrap;
+}
+function matchContent(span) {
+  const wrap = document.createElement("div");
+  wrap.className = "fc-match";
+  const text = document.createElement("div");
+  text.className = "fc-match-text mono";
+  text.appendChild(document.createTextNode(span.char_pre || ""));
+  const mark = document.createElement("mark");
+  mark.textContent = span.char_match || "";
+  text.appendChild(mark);
+  text.appendChild(document.createTextNode(span.char_post || ""));
+  wrap.appendChild(matchLabel());
+  wrap.appendChild(text);
+  return wrap;
+}
+async function revealDialog(dlg) {
+  // Lazy, gated matched-content reveal: fetch ONE record's spans when its dialog opens.
+  if (dlg.dataset.reveal !== "1" || dlg.dataset.loaded === "1") return;
+  dlg.dataset.loaded = "1"; // once per dialog, even if the fetch fails
+  const jobId = dlg.dataset.jobId;
+  const sourceId = dlg.dataset.sourceId;
+  if (!jobId || !sourceId) return;
+  const slots = dlg.querySelectorAll(".fc-match-slot");
+  slots.forEach((slot) => {
+    slot.textContent = "";
+    slot.appendChild(matchSkeleton()); // show the loading placeholder right away
+  });
+  let spans;
+  try {
+    const res = await fetch(
+      "/api/jobs/" + encodeURIComponent(jobId) + "/reveal?source_id=" + encodeURIComponent(sourceId)
+    );
+    spans = (await res.json()).spans || [];
+  } catch (e) {
+    dlg.dataset.loaded = "0"; // allow a retry on reopen
+    slots.forEach((slot) => (slot.textContent = "")); // clear placeholders on error
+    return;
+  }
+  const byId = {};
+  spans.forEach((s) => (byId[s.finding_id] = s));
+  slots.forEach((slot) => {
+    const span = byId[slot.dataset.findingId];
+    slot.textContent = ""; // clear the skeleton
+    if (span) slot.appendChild(matchContent(span));
+  });
+}
 function initDialogs() {
   document.addEventListener("click", (e) => {
     const opener = e.target.closest("[data-dialog]");
     if (opener) {
       const dlg = document.getElementById(opener.dataset.dialog);
-      if (dlg && typeof dlg.showModal === "function") dlg.showModal();
+      if (dlg && typeof dlg.showModal === "function") {
+        dlg.showModal();
+        revealDialog(dlg);
+      }
       return;
     }
     if (e.target.closest("[data-close]")) {
@@ -705,10 +1099,93 @@ function initNotifications() {
   setInterval(refresh, 3000);
 }
 
+// ---- admin: custom recognizers ---------------------------------------
+function initRecognizers() {
+  const body = document.getElementById("rec-body");
+  const form = document.getElementById("rec-form");
+  if (!body || !form) return;
+  const empty = document.getElementById("rec-empty");
+  const msg = document.getElementById("rec-msg");
+
+  function render(list) {
+    body.textContent = "";
+    if (empty) empty.hidden = list.length > 0;
+    list.forEach((r) => {
+      const tr = document.createElement("tr");
+      tr.appendChild(cell(r.name, "mono"));
+      tr.appendChild(cell(r.supported_entity, "mono"));
+      tr.appendChild(chipCell(r.category, "cat"));
+      tr.appendChild(cell(r.regex, "mono"));
+      tr.appendChild(cell(scoreText(r.score)));
+      tr.appendChild(cell((r.context || []).join(", ") || "—"));
+      tr.appendChild(cell(r.deterministic ? "deterministic" : "classifier"));
+      const td = document.createElement("td");
+      const btn = document.createElement("button");
+      btn.className = "ghost";
+      btn.textContent = "Delete";
+      btn.dataset.del = r.name;
+      td.appendChild(btn);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    });
+  }
+  async function load() {
+    try {
+      const res = await fetch("/api/admin/recognizers");
+      render((await res.json()).recognizers || []);
+    } catch (e) {
+      /* leave the table as-is on a transient error */
+    }
+  }
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (msg) msg.textContent = "";
+    const fd = new FormData(form);
+    const context = String(fd.get("context") || "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+    const payload = {
+      name: fd.get("name"),
+      supported_entity: fd.get("supported_entity"),
+      category: fd.get("category"),
+      regex: fd.get("regex"),
+      score: parseFloat(fd.get("score")) || 0.4,
+      context: context,
+      deterministic: fd.get("deterministic") === "on",
+    };
+    try {
+      const res = await fetch("/api/admin/recognizers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (msg) msg.textContent = data.error || "Invalid recognizer (check the regex).";
+        return;
+      }
+      form.reset();
+      if (msg) msg.textContent = "Added — applies to the next run.";
+      render(data.recognizers || []);
+    } catch (err) {
+      if (msg) msg.textContent = "Could not save the recognizer.";
+    }
+  });
+  body.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-del]");
+    if (!btn) return;
+    const res = await fetch("/api/admin/recognizers/" + encodeURIComponent(btn.dataset.del), {
+      method: "DELETE",
+    });
+    render((await res.json()).recognizers || []);
+  });
+  load();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initWs1();
   initLive();
   initAdmin();
   initDialogs();
   initNotifications();
+  initRecognizers();
 });

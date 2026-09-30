@@ -14,6 +14,8 @@ import io
 import json
 import os
 import re
+import sys
+import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,9 +35,17 @@ from openpyxl import Workbook
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from libs.config import load_ws1_config
+from libs.eval.golden import DEFAULT_GOLDEN_DIR, load_golden_truth
+from libs.eval.metrics import evaluate
 from libs.jobs import Job, JobRequest
+from libs.recognizers_store import (
+    StoredRecognizer,
+    load_recognizers,
+    save_recognizers,
+)
 from libs.registry import JobRegistry
-from libs.schemas import Finding, ScoreType, Ws1Summary
+from libs.review_store import VALID_STATUSES, ReviewStore
+from libs.schemas import Finding, ManifestEntry, ScoreType, Ws1Summary
 from pipelines.workstream1_sensitive.extract_engine import build_extraction_engine
 from pipelines.workstream1_sensitive.ingest import ingest
 from pipelines.workstream1_sensitive.job_service import JobService
@@ -43,8 +53,33 @@ from pipelines.workstream1_sensitive.runner import build_reader
 from pipelines.workstream1_sensitive.worker import Worker
 
 _APP_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _APP_DIR.parent
 _PAGE_SIZE = 100
 _MATCH_CONTEXT_CHARS = 48
+
+
+def _load_dotenv(path: Path = _REPO_ROOT / ".env") -> None:
+    """Load repo-root .env into the environment so `uvicorn app.main:app` needs no env
+    prefix. Values already set in the real environment win (CLI/shell override .env), and
+    a missing file is a no-op. Stdlib only — .env is git-ignored (may hold a reveal flag)."""
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+
+
+# Auto-load .env when serving, but never under pytest — tests set their own env and must
+# not inherit a developer's local .env (e.g. a WS1_SHOW_MATCHED_CONTENT reveal flag).
+if "pytest" not in sys.modules:
+    _load_dotenv()
 
 # ws1_item_summary export columns (response §3.4 order) + latest-job provenance.
 _EXPORT_COLUMNS = [
@@ -52,6 +87,7 @@ _EXPORT_COLUMNS = [
     "processing_status", "calibration_status", "strongest_band", "strongest_score_type",
     "strongest_score", "exception_code", "snapshot_id", "content_hash", "run_id",
     "config_version", "author", "datetime", "linked_executive", "linked_project", "job_id",
+    "review_status", "reviewer", "rationale", "decided_at",  # human adjudication (6a)
 ]
 
 
@@ -110,50 +146,6 @@ def _reveal_record_values(records: list[dict[str, Any]], text: str | None) -> No
         if match:
             start, end = int(match.group(1)), int(match.group(2))
             record["value"] = text[start:end]
-
-
-def _reveal_matched_content(
-    config_path: str, findings_by_source: dict[str, list[dict[str, Any]]]
-) -> None:
-    """PoC / human-review only: attach the matched span (char_pre/char_match/char_post) to
-    each finding that has char offsets, re-derived LIVE from the read-only source.
-
-    Deliberately NOT persisted — nothing is written to the result rows, ledger, registry,
-    or logs (Contracts 2 & 3 keep the durable artefacts content-free). Computed at render
-    time, in-boundary, and gated by the caller (off by default). The sample is synthetic.
-    """
-    cfg = load_ws1_config(config_path)
-    reader = build_reader(cfg)
-    engine = build_extraction_engine(cfg.extract)
-    by_id = {e.source_id: e for e in reader.list_manifest()}
-    text_cache: dict[str, str | None] = {}
-
-    def _text(source_id: str) -> str | None:
-        if source_id not in text_cache:
-            entry = by_id.get(source_id)
-            try:
-                text_cache[source_id] = (
-                    engine.extract(entry, ingest(reader, entry)).text
-                    if entry is not None
-                    else None
-                )
-            except Exception:  # extraction may fail for this item — just show no snippet
-                text_cache[source_id] = None
-        return text_cache[source_id]
-
-    for source_id, items in findings_by_source.items():
-        for finding in items:
-            loc = finding.get("evidence_location") or {}
-            start, end = loc.get("char_start"), loc.get("char_end")
-            if start is None or end is None:
-                continue
-            text = _text(source_id)
-            if not text or start >= len(text):
-                continue
-            end = min(end, len(text))
-            finding["char_pre"] = text[max(0, start - _MATCH_CONTEXT_CHARS) : start]
-            finding["char_match"] = text[start:end]
-            finding["char_post"] = text[end : end + _MATCH_CONTEXT_CHARS]
 
 
 def _latest_per_record(registry: JobRegistry) -> list[dict[str, Any]]:
@@ -227,33 +219,61 @@ def create_app(
             reveal_matches = load_ws1_config(config_path).reveal_matched_content
 
     registry = JobRegistry(registry_db)
+    reviews = ReviewStore(registry_db)  # own tables in the same DB file
     service = JobService(config_path, registry)
     worker = Worker(service, registry) if start_worker else None
 
-    _authorised_cache: dict[str, int] = {}
+    def _records_with_reviews() -> list[dict[str, Any]]:
+        """Latest processed row per record, each merged with its current review decision."""
+        review_by_id = reviews.all()
+        rows = _latest_per_record(registry)
+        for row in rows:
+            decision = review_by_id.get(row["source_id"])
+            row["review_status"] = decision["status"] if decision else "pending"
+            row["reviewer"] = decision["reviewer"] if decision else None
+            row["rationale"] = decision["rationale"] if decision else None
+            row["decided_at"] = decision["decided_at"] if decision else None
+        return rows
+
+    _manifest_cache: dict[str, list[ManifestEntry]] = {}
+
+    def _manifest() -> list[ManifestEntry]:
+        # The manifest is frozen for the life of a run (Contract 4), so fetch + parse it once
+        # and slice from memory for pagination. For the Databricks backend this turns every
+        # /ws1 page load and every "Load more" from a full manifest.jsonl download off the UC
+        # volume into a single cached read (performance.md: no repeated full-corpus-metadata
+        # reads, no N+1 source reads). Also backs the admin SSE authorised count.
+        if "entries" not in _manifest_cache:
+            cfg = load_ws1_config(config_path)
+            _manifest_cache["entries"] = build_reader(cfg).list_manifest()
+        return _manifest_cache["entries"]
 
     def _authorised() -> int:
-        # The manifest is frozen for the life of a run, so the authorised count is constant;
-        # cache it instead of re-reading + re-parsing the whole manifest on every admin SSE
-        # tick (a repeated full-corpus-metadata read at production volume — performance.md).
-        if "n" not in _authorised_cache:
-            cfg = load_ws1_config(config_path)
-            _authorised_cache["n"] = len(build_reader(cfg).list_manifest())
-        return _authorised_cache["n"]
+        return len(_manifest())
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         registry.reconcile_stale_running()  # clear jobs orphaned by a prior restart
         if worker is not None:
             worker.start()
+        # Pre-warm the context (load SBERT, cache the manifest) off the request path so the
+        # FIRST live run starts fast instead of paying the ~18s cold model load on click.
+        threading.Thread(target=service.warm, daemon=True).start()
         yield
         if worker is not None:
             worker.stop()
         registry.close()
+        reviews.close()
 
     app = FastAPI(title="WS-1 PoC service", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
     templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
+    # Cache-bust CSS/JS: version the asset URLs by their newest mtime so a restart after an
+    # edit always makes the browser refetch (no stale app.css/app.js served from cache).
+    _static = _APP_DIR / "static"
+    _asset_paths = [_static / "app.css", _static / "app.js"]
+    _asset_ver = str(max((p.stat().st_mtime_ns for p in _asset_paths if p.exists()), default=0))
+    templates.env.globals["asset_ver"] = _asset_ver
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException) -> Any:
@@ -283,8 +303,7 @@ def create_app(
 
     @app.get("/ws1", response_class=HTMLResponse)
     def page_ws1(request: Request) -> Any:
-        cfg = load_ws1_config(config_path)
-        entries = build_reader(cfg).list_manifest()
+        entries = _manifest()  # cached; sliced in memory, not re-fetched per page
         window = entries[:_PAGE_SIZE]
         next_offset = _PAGE_SIZE if len(entries) > _PAGE_SIZE else None
         return templates.TemplateResponse(
@@ -294,6 +313,7 @@ def create_app(
                 **_config_meta(),
                 "items": window,
                 "total": len(entries),
+                "loaded": len(window),
                 "next_offset": next_offset,
             },
         )
@@ -301,8 +321,8 @@ def create_app(
     @app.get("/ws1/rows", response_class=HTMLResponse)
     def page_ws1_rows(request: Request, offset: int = 0) -> Any:
         """HTMX fragment: the next page of source rows (+ an OOB load-more button)."""
-        cfg = load_ws1_config(config_path)
-        entries = build_reader(cfg).list_manifest()
+        entries = _manifest()  # cached; a "Load more" click never re-hits the source
+        offset = max(0, offset)
         window = entries[offset : offset + _PAGE_SIZE]
         nxt = offset + _PAGE_SIZE
         next_offset = nxt if len(entries) > nxt else None
@@ -312,6 +332,7 @@ def create_app(
             context={
                 "items": window,
                 "total": len(entries),
+                "loaded": min(nxt, len(entries)),
                 "next_offset": next_offset,
                 "oob": True,
             },
@@ -355,8 +376,10 @@ def create_app(
             # (score.py); mark it so the workbook can separate it from flag-driving findings.
             dumped["routing_only"] = dumped["score_type"] == ScoreType.SIMILARITY.value
             findings_by_source.setdefault(finding.source_id, []).append(dumped)
-        if reveal_matches:
-            _reveal_matched_content(config_path, findings_by_source)
+        # Reveal is LAZY (per-record, on dialog open) — never eager here. Eagerly re-deriving
+        # matched content for every finding would re-download + re-extract every document from
+        # source at render time (minutes for a 48-item batch). The dialog fetches one record's
+        # spans from /api/jobs/{id}/reveal on demand.
         return templates.TemplateResponse(
             request=request,
             name="results.html",
@@ -365,8 +388,53 @@ def create_app(
                 "rows": rows,
                 "findings_by_source": findings_by_source,
                 "reconcile": job.result.reconcile if job.result else None,
+                "reveal_enabled": reveal_matches,
             },
         )
+
+    @app.get("/api/jobs/{job_id}/reveal")
+    def job_reveal(job_id: str, source_id: str) -> dict[str, Any]:
+        """Gated, lazy matched-content reveal for ONE record (opened in the review dialog).
+
+        Re-derives the span LIVE from the read-only source (one document) via the warm
+        context — never persisted (Contracts 2 & 3). Off unless reveal is enabled.
+        """
+        if not reveal_matches:
+            return {"source_id": source_id, "spans": []}
+        job = registry.get(job_id)
+        if job is None:
+            return {"source_id": source_id, "spans": []}
+        _, findings = _load_rows_findings(job)
+        src_findings = [f for f in findings if f.source_id == source_id]
+        if not src_findings:
+            return {"source_id": source_id, "spans": []}
+        ctx = service.context()  # warm: manifest cached, engine built (no re-download)
+        entry = next(
+            (e for e in ctx.reader.list_manifest() if e.source_id == source_id), None
+        )
+        text: str | None = None
+        if entry is not None:
+            try:
+                text = ctx.extraction_engine.extract(entry, ingest(ctx.reader, entry)).text
+            except Exception:  # extraction may fail — then no span is revealed
+                text = None
+        spans: list[dict[str, Any]] = []
+        if text:
+            for finding in src_findings:
+                loc = finding.evidence_location
+                start, end = loc.char_start, loc.char_end
+                if start is None or end is None or start >= len(text):
+                    continue
+                end = min(end, len(text))
+                spans.append(
+                    {
+                        "finding_id": finding.finding_id,
+                        "char_pre": text[max(0, start - _MATCH_CONTEXT_CHARS) : start],
+                        "char_match": text[start:end],
+                        "char_post": text[end : end + _MATCH_CONTEXT_CHARS],
+                    }
+                )
+        return {"source_id": source_id, "spans": spans}
 
     @app.get("/admin", response_class=HTMLResponse)
     def page_admin(request: Request) -> Any:
@@ -394,6 +462,31 @@ def create_app(
             },
         )
 
+    @app.get("/admin/eval", response_class=HTMLResponse)
+    def page_admin_eval(request: Request) -> Any:
+        summary = registry.migration_summary(_authorised())
+        return templates.TemplateResponse(
+            request=request,
+            name="admin_eval.html",
+            context={
+                "config_version": _config_meta()["config_version"],
+                "summary": summary,
+            },
+        )
+
+    @app.get("/admin/recognizers", response_class=HTMLResponse)
+    def page_admin_recognizers(request: Request) -> Any:
+        summary = registry.migration_summary(_authorised())
+        return templates.TemplateResponse(
+            request=request,
+            name="admin_recognizers.html",
+            context={
+                "config_version": _config_meta()["config_version"],
+                "summary": summary,
+                "categories": load_ws1_config(config_path).taxonomy.categories,
+            },
+        )
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -401,8 +494,8 @@ def create_app(
     @app.get("/api/source/manifest")
     def source_manifest(offset: int = 0, limit: int = 100) -> dict[str, Any]:
         """Metadata-only view of authorised items (no content)."""
-        cfg = load_ws1_config(config_path)
-        entries = build_reader(cfg).list_manifest()
+        entries = _manifest()  # cached; paging never re-downloads the manifest
+        offset = max(0, offset)
         window = entries[offset : offset + limit]
         # Exclude content_hash (internal reconciliation) and path (source-layout
         # detail the operator does not need) — reference items by source_id only.
@@ -475,13 +568,90 @@ def create_app(
 
     @app.get("/api/admin/records")
     def admin_records() -> dict[str, Any]:
-        """Latest processed row per input record (deduplicated across jobs)."""
-        return {"records": _latest_per_record(registry)}
+        """Latest processed row per input record (deduplicated), with review state."""
+        return {"records": _records_with_reviews()}
+
+    @app.get("/api/admin/reviews")
+    def list_reviews() -> dict[str, Any]:
+        """Current adjudication decision per source_id."""
+        return {"reviews": reviews.all()}
+
+    @app.post("/api/admin/reviews")
+    def add_review(decision: dict[str, Any]) -> Response:
+        """Record a reviewer decision (accept/reject/needs_info) + rationale, audit-logged."""
+        source_id = str(decision.get("source_id") or "").strip()
+        status = str(decision.get("status") or "").strip()
+        if not source_id:
+            return JSONResponse({"error": "source_id is required"}, status_code=400)
+        if status not in VALID_STATUSES:
+            return JSONResponse(
+                {"error": f"status must be one of {list(VALID_STATUSES)}"}, status_code=400
+            )
+        row = reviews.set_decision(
+            source_id=source_id,
+            job_id=str(decision.get("job_id") or ""),
+            status=status,
+            reviewer=str(decision.get("reviewer") or "operator"),
+            rationale=str(decision.get("rationale") or ""),
+            calibrated_score=decision.get("calibrated_score"),
+        )
+        return JSONResponse({"review": row})
+
+    @app.get("/api/admin/eval")
+    def admin_eval() -> dict[str, Any]:
+        """Expected-vs-actual evaluation against the golden truth (content-free)."""
+        golden_dir = os.environ.get("WS1_GOLDEN_DIR", str(DEFAULT_GOLDEN_DIR))
+        truth = load_golden_truth(golden_dir)
+        categories = load_ws1_config(config_path).taxonomy.categories
+        records = _latest_per_record(registry)
+        report = evaluate(records, truth, categories)
+        # Calibration status breakdown (§3.3): how many rows are calibrated/provisional/etc.
+        calibration: dict[str, int] = {}
+        for record in records:
+            status = record.get("calibration_status") or "unknown"
+            calibration[status] = calibration.get(status, 0) + 1
+        report["calibration"] = calibration
+        return report
+
+    def _rewarm() -> None:
+        # A recogniser change alters the detection engine — drop the warm context and
+        # rebuild it off the request path so the next run uses the new recognisers.
+        service.invalidate()
+        threading.Thread(target=service.warm, daemon=True).start()
+
+    @app.get("/api/admin/recognizers")
+    def list_recognizers() -> dict[str, Any]:
+        """User-managed custom recognisers (merged on top of config + Presidio defaults)."""
+        return {"recognizers": [r.model_dump() for r in load_recognizers()]}
+
+    @app.post("/api/admin/recognizers")
+    def add_recognizer(rec: StoredRecognizer) -> Response:
+        categories = load_ws1_config(config_path).taxonomy.categories
+        if rec.category not in categories:
+            return JSONResponse(
+                {"error": f"category must be one of {categories}"}, status_code=400
+            )
+        items = load_recognizers()
+        if any(r.name == rec.name for r in items):
+            return JSONResponse(
+                {"error": f"a recognizer named '{rec.name}' already exists"}, status_code=400
+            )
+        items.append(rec)
+        save_recognizers(items)
+        _rewarm()
+        return JSONResponse({"recognizers": [r.model_dump() for r in items]})
+
+    @app.delete("/api/admin/recognizers/{name}")
+    def delete_recognizer(name: str) -> dict[str, Any]:
+        items = [r for r in load_recognizers() if r.name != name]
+        save_recognizers(items)
+        _rewarm()
+        return {"recognizers": [r.model_dump() for r in items]}
 
     @app.get("/api/admin/records/export")
     def admin_records_export(fmt: str = "xlsx") -> Response:
         """Download the processed records as the §3.4 ws1_item_summary in xlsx/csv/jsonl."""
-        records = _latest_per_record(registry)
+        records = _records_with_reviews()
         name = "ws1_item_summary"
         if fmt == "jsonl":
             body = "".join(

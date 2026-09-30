@@ -60,11 +60,15 @@ def run_single(
     config_path: str | Path,
     request: JobRequest,
     on_event: Callable[[StageEvent], None] | None = None,
+    context: Ws1Context | None = None,
 ) -> JobResult:
     """Run a single (or small, explicit) selection synchronously.
 
     `on_event` (optional) streams each stage event live — used by the interactive view,
     so `run_single` is the ONE place single-job orchestration lives (no duplicate path).
+    `context` (optional) reuses an already-built, warm `Ws1Context` (SBERT loaded, manifest
+    cached) instead of building one per call — the interactive view passes it to cut the
+    per-run start latency (model load + repeated manifest download).
     """
     started = _now()
     cfg = load_ws1_config(config_path)
@@ -85,7 +89,7 @@ def run_single(
             started,
         )
 
-    ctx = build_context(cfg)
+    ctx = context or build_context(cfg)
     by_id = {entry.source_id: entry for entry in ctx.reader.list_manifest()}
     missing = [sid for sid in request.source_ids if sid not in by_id]
     if missing:
@@ -99,7 +103,7 @@ def run_single(
 
     run_id = compute_run_id(selected, cfg)
     job_id = f"{request.job_type.value}-{run_id}"
-    snapshot_id = f"sample:{Path(cfg.source.manifest).stem}"
+    snapshot_id = f"{cfg.source.backend}:{Path(cfg.source.manifest).stem}"
     ledger = RunLedger(run_id, cfg.config_version, on_event=on_event)
 
     # Namespace the result set per job so single runs never clobber a batch run.
@@ -239,7 +243,7 @@ def run_batch(
 
     run_id = compute_run_id(selected, cfg)
     job_id = f"batch-{run_id}"
-    snapshot_id = f"sample:{Path(cfg.source.manifest).stem}"
+    snapshot_id = f"{cfg.source.backend}:{Path(cfg.source.manifest).stem}"
 
     # Namespace the result set per run so distinct batches never clobber each other and
     # resume reads only THIS run's prior partial. Because run_id is derived from the
