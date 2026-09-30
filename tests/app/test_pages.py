@@ -442,6 +442,10 @@ def test_recognizers_page_renders(client: TestClient) -> None:
     assert r.status_code == 200
     assert 'id="rec-form"' in r.text
     assert 'href="/recognizers"' in r.text  # sidebar section link
+    assert 'name="validator"' in r.text  # checksum dropdown
+    assert ">iban_mod97<" in r.text  # options come from VALIDATORS (never empty)
+    assert ">weighted_modulus<" in r.text  # declarative custom checksum
+    assert 'id="wm-params"' in r.text  # its parameter panel (data, not code)
 
 
 def test_recognizers_crud_api(
@@ -462,6 +466,47 @@ def test_recognizers_crud_api(
     assert ok.json()["recognizers"][0]["supported_entity"] == "SWIFT_BIC"
     # persisted across requests
     assert client.get("/api/admin/recognizers").json()["recognizers"][0]["name"] == "swift"
+
+    # a checksum-validated recognizer persists its validator (UI now sets this)
+    iban = client.post(
+        "/api/admin/recognizers",
+        json={
+            "name": "iban_checksum", "supported_entity": "IBAN_CODE", "category": "financial",
+            "regex": r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b", "validator": "iban_mod97",
+        },
+    )
+    assert iban.status_code == 200
+    stored = {r["name"]: r for r in client.get("/api/admin/recognizers").json()["recognizers"]}
+    assert stored["iban_checksum"]["validator"] == "iban_mod97"
+    # an unknown checksum is rejected at the boundary (422 body validation)
+    bad_val = client.post(
+        "/api/admin/recognizers",
+        json={"name": "q", "supported_entity": "Y", "category": "financial",
+              "regex": "a", "validator": "crc32"},
+    )
+    assert bad_val.status_code == 422
+
+    # a declarative weighted_modulus recognizer persists its checksum params
+    wm = client.post(
+        "/api/admin/recognizers",
+        json={"name": "aba", "supported_entity": "ABA_ROUTING", "category": "financial",
+              "regex": r"\b\d{9}\b", "validator": "weighted_modulus",
+              "checksum": {"mode": "weighted_sum", "modulus": 10, "weights": [3, 7, 1],
+                           "align": "left"}},
+    )
+    assert wm.status_code == 200
+    stored_wm = {r["name"]: r for r in client.get("/api/admin/recognizers").json()["recognizers"]}
+    assert stored_wm["aba"]["checksum"]["weights"] == [3, 7, 1]
+    # weighted_modulus without a checksum spec is rejected (422)
+    no_spec = client.post(
+        "/api/admin/recognizers",
+        json={"name": "bad_wm", "supported_entity": "Z", "category": "financial",
+              "regex": "a", "validator": "weighted_modulus"},
+    )
+    assert no_spec.status_code == 422
+
+    client.delete("/api/admin/recognizers/iban_checksum")
+    client.delete("/api/admin/recognizers/aba")
 
     # category must be in the taxonomy → 400
     bad_cat = client.post(

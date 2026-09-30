@@ -6,9 +6,11 @@
     <h1>Custom recognizers</h1>
     <p class="meta">
       Added on top of Presidio's built-in recognizers and the config recognizers, on every
-      detection request. Map each entity to a taxonomy category so it flags. A base score
-      below the analyzer threshold means a match only counts when a context word is nearby.
-      Applied to new runs (the pipeline reloads); for a governed run, bake into the config.
+      detection request (requires a Presidio engine). Map each entity to a taxonomy category
+      so it flags. A base score below the analyzer threshold means a match only counts when a
+      context word is nearby. A <strong>checksum</strong> verifies each match: a pass becomes a
+      deterministic finding, a failing match is dropped (kills false positives). Applied to new
+      runs (the pipeline reloads); for a governed run, bake into the config.
     </p>
 
     <div class="card" style="padding:20px; margin-bottom:24px">
@@ -24,8 +26,49 @@
           <label>Base score<input name="score" type="number" step="0.05" min="0" max="1" value="0.4" /></label>
           <label class="wide">Regex<input name="regex" required placeholder="\b[A-Z]{4}[A-Z0-9]{4,7}\b" /></label>
           <label class="wide">Context words (comma-separated)<input name="context" placeholder="swift, bic, transfer" /></label>
-          <label class="check"><input name="deterministic" type="checkbox" /> Validated/checksum format (deterministic)</label>
+          <label>Checksum (optional)
+            <select name="validator" id="rec-validator">
+              <option value="">none</option>
+              {% for v in validators|default(["luhn", "iban_mod97", "aba_routing", "weighted_modulus"]) %}
+              <option value="{{ v }}">{{ v }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="check"><input name="deterministic" type="checkbox" /> Validated format (deterministic, no checksum)</label>
         </div>
+
+        {# Shown only for the parameterised `weighted_modulus` checksum — data, never code. #}
+        <fieldset id="wm-params" class="wm-params" hidden>
+          <legend>Weighted-modulus parameters</legend>
+          <div class="rec-grid">
+            <label>Mode
+              <select name="wm_mode">
+                <option value="weighted_sum">weighted sum · Σ(symbol×weight) mod m</option>
+                <option value="integer">integer · whole value mod m (IBAN-style)</option>
+              </select>
+            </label>
+            <label>Modulus<input name="wm_modulus" type="number" min="2" value="10" /></label>
+            <label>Expected remainder<input name="wm_expect" type="number" min="0" value="0" /></label>
+            <label>Alphabet
+              <select name="wm_alphabet">
+                <option value="digits">digits (0-9)</option>
+                <option value="alnum">alphanumeric (A-Z → 10-35)</option>
+              </select>
+            </label>
+            <label>Weights — comma-separated (weighted sum)<input name="wm_weights" placeholder="3, 7, 1" /></label>
+            <label>Weight alignment
+              <select name="wm_align">
+                <option value="left">from the left</option>
+                <option value="right">from the right</option>
+              </select>
+            </label>
+            <label>Rotate first N chars (integer mode)<input name="wm_rotate" type="number" min="0" value="0" /></label>
+          </div>
+          <p class="meta" style="margin:8px 0 0">
+            e.g. <strong>ABA</strong>: weighted sum · mod 10 · weights 3,7,1 · left.
+            <strong>IBAN</strong>: integer · mod 97 · remainder 1 · alphanumeric · rotate 4.
+          </p>
+        </fieldset>
         <div class="controls">
           <button type="submit" class="btn">Add recognizer</button>
           <span id="rec-msg" class="muted"></span>

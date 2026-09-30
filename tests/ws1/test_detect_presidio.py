@@ -91,3 +91,34 @@ def test_checksum_validator_passes_and_fails() -> None:
     assert findings[0].score_type is ScoreType.DETERMINISTIC_MATCH
     assert findings[0].rule_id == "CARD:luhn"
     assert findings[0].score is None
+
+
+def test_weighted_modulus_validator_gates_matches() -> None:
+    """A weighted_modulus (declarative) checksum drops the routing number that fails it."""
+    from libs.schemas import ChecksumSpec, CustomRecogniserConfig, PatternSpec
+    from pipelines.workstream1_sensitive.detect_presidio import (
+        map_presidio_results,
+        validators_for,
+    )
+
+    cfg = DetectConfig(
+        engine="presidio",
+        category_map={"ABA": "financial"},
+        custom_recognizers=[
+            CustomRecogniserConfig(
+                name="aba",
+                supported_entity="ABA",
+                patterns=[PatternSpec(name="aba", regex=r"\d{9}", score=0.5)],
+                validator="weighted_modulus",
+                checksum=ChecksumSpec(modulus=10, weights=[3, 7, 1], align="left"),
+            )
+        ],
+    )
+    text = "routing 011000015 vs 011000016"  # first valid ABA, second not
+    results = [_FakeResult("ABA", 8, 17, 0.5), _FakeResult("ABA", 21, 30, 0.5)]
+    findings = map_presidio_results(
+        results, cfg, "x", [], text=text, validators=validators_for(cfg)
+    )
+    assert len(findings) == 1
+    assert findings[0].score_type is ScoreType.DETERMINISTIC_MATCH
+    assert findings[0].rule_id == "ABA:weighted_modulus"

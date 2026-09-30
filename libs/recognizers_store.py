@@ -16,10 +16,10 @@ import os
 import re
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from libs.checksums import VALIDATORS
-from libs.schemas import CustomRecogniserConfig, DetectConfig, PatternSpec
+from libs.checksums import SELECTABLE_VALIDATORS
+from libs.schemas import ChecksumSpec, CustomRecogniserConfig, DetectConfig, PatternSpec
 
 DEFAULT_STORE = Path("poc/custom_recognizers.json")
 
@@ -39,7 +39,9 @@ class StoredRecognizer(BaseModel):
     score: float = Field(default=0.4, ge=0.0, le=1.0)
     context: list[str] = Field(default_factory=list)
     deterministic: bool = False  # regex is a validated/checksum format → DETERMINISTIC_MATCH
-    validator: str | None = None  # optional checksum: luhn | iban_mod97 | aba_routing
+    # optional checksum: luhn | iban_mod97 | aba_routing | weighted_modulus (+ `checksum` params)
+    validator: str | None = None
+    checksum: ChecksumSpec | None = None
 
     @field_validator("regex")
     @classmethod
@@ -53,9 +55,18 @@ class StoredRecognizer(BaseModel):
     @field_validator("validator")
     @classmethod
     def _known_validator(cls, value: str | None) -> str | None:
-        if value is not None and value not in VALIDATORS:
-            raise ValueError(f"unknown validator: {value}; choose one of {sorted(VALIDATORS)}")
+        if value is not None and value not in SELECTABLE_VALIDATORS:
+            raise ValueError(
+                f"unknown validator: {value}; choose one of {SELECTABLE_VALIDATORS}"
+            )
         return value
+
+    @model_validator(mode="after")
+    def _checksum_params_present(self) -> StoredRecognizer:
+        # weighted_modulus is data-parameterised → it needs a `checksum` spec.
+        if self.validator == "weighted_modulus" and self.checksum is None:
+            raise ValueError("validator 'weighted_modulus' requires a 'checksum' spec")
+        return self
 
     @field_validator("name", "supported_entity", "category")
     @classmethod
@@ -93,6 +104,7 @@ def apply_recognizer_overlay(detect: DetectConfig, path: Path | None = None) -> 
             patterns=[PatternSpec(name=rec.name, regex=rec.regex, score=rec.score)],
             context=rec.context,
             validator=rec.validator,
+            checksum=rec.checksum,
         )
         for rec in overlay
     ]

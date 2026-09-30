@@ -8,6 +8,7 @@ reference evidence by LOCATION only (`.claude/rules/privacy-sensitive-data.md`).
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
@@ -222,6 +223,29 @@ class PatternSpec(BaseModel):
     score: float = 0.5  # base confidence for a raw match (context can boost it)
 
 
+class ChecksumSpec(BaseModel):
+    """Declarative parameters for the `weighted_modulus` checksum — a DATA-ONLY way to add a
+    check-digit scheme (ISO 7064 family, ABA, ISBN, many national IDs) without executing any
+    user code. Two shapes: a weighted digit sum mod m, or the whole value read as one integer
+    mod m (IBAN-style, with an optional rotation). Evaluated by libs.checksums."""
+
+    mode: Literal["weighted_sum", "integer"] = "weighted_sum"
+    modulus: int = Field(ge=2)  # the check base (10, 11, 97, ...)
+    expect: int = Field(default=0, ge=0)  # required remainder (0, or 1 for IBAN)
+    weights: list[int] = Field(default_factory=list)  # weighted_sum: cycled across chars
+    align: Literal["left", "right"] = "left"  # weighted_sum: cycle from the left or the right
+    alphabet: Literal["digits", "alnum"] = "digits"  # alnum: 0-9 + A-Z -> 10..35 (ISO 7064)
+    rotate: int = Field(default=0, ge=0)  # integer mode: move first N chars to the end
+
+    @model_validator(mode="after")
+    def _coherent(self) -> ChecksumSpec:
+        if self.expect >= self.modulus:
+            raise ValueError("expect must be < modulus")
+        if self.mode == "weighted_sum" and not self.weights:
+            raise ValueError("weighted_sum requires at least one weight")
+        return self
+
+
 class CustomRecogniserConfig(BaseModel):
     """A user-defined Presidio PatternRecogniser, added to the DEFAULT recognisers per
     /analyze request (ad-hoc). Map `supported_entity` to a taxonomy category via
@@ -232,9 +256,11 @@ class CustomRecogniserConfig(BaseModel):
     patterns: list[PatternSpec]
     context: list[str] = Field(default_factory=list)  # nearby words that boost confidence
     supported_language: str = "en"
-    # Optional checksum validator (libs.checksums.VALIDATORS key: luhn|iban_mod97|aba_routing).
-    # Set → a match is verified: pass → DETERMINISTIC_MATCH, fail → dropped.
+    # Optional checksum validator: a libs.checksums.VALIDATORS key (luhn|iban_mod97|aba_routing),
+    # or "weighted_modulus" parameterised by `checksum`. Set → a match is verified: pass →
+    # DETERMINISTIC_MATCH, fail → dropped.
     validator: str | None = None
+    checksum: ChecksumSpec | None = None  # params when validator == "weighted_modulus"
 
 
 class DetectConfig(BaseModel):

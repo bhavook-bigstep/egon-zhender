@@ -51,3 +51,50 @@ def test_validators_map() -> None:
         "iban_mod97": iban_mod97,
         "aba_routing": aba_routing,
     }
+
+
+# ---- weighted_modulus (declarative, no user code) ----------------------------
+from libs.checksums import SELECTABLE_VALIDATORS, resolve_validator, weighted_modulus  # noqa: E402
+from libs.schemas import ChecksumSpec  # noqa: E402
+
+
+def test_weighted_sum_reproduces_aba() -> None:
+    # ABA: weighted sum, mod 10, weights 3,7,1 from the left.
+    spec = ChecksumSpec(mode="weighted_sum", modulus=10, weights=[3, 7, 1], align="left")
+    assert weighted_modulus("011000015", spec) is True   # Federal Reserve Boston
+    assert weighted_modulus("011000016", spec) is False  # one digit off → fails
+    assert aba_routing("011000015") == weighted_modulus("011000015", spec)
+
+
+def test_integer_mode_reproduces_iban() -> None:
+    # IBAN: integer, mod 97, remainder 1, alphanumeric, rotate 4.
+    spec = ChecksumSpec(mode="integer", modulus=97, expect=1, alphabet="alnum", rotate=4)
+    assert weighted_modulus("GB82WEST12345698765432", spec) is True
+    assert weighted_modulus("GB82WEST12345698765433", spec) is False
+
+
+def test_weighted_modulus_malformed_returns_false() -> None:
+    spec = ChecksumSpec(mode="weighted_sum", modulus=10, weights=[1])
+    assert weighted_modulus("", spec) is False          # empty
+    assert weighted_modulus("12A4", spec) is False       # letter under digits-only alphabet
+
+
+def test_spec_rejects_incoherent_params() -> None:
+    import pytest
+
+    with pytest.raises(ValueError):
+        ChecksumSpec(modulus=10, expect=10, weights=[1])  # expect must be < modulus
+    with pytest.raises(ValueError):
+        ChecksumSpec(mode="weighted_sum", modulus=11, weights=[])  # needs weights
+
+
+def test_resolve_validator() -> None:
+    assert "weighted_modulus" in SELECTABLE_VALIDATORS
+    named = resolve_validator("luhn", None)
+    assert named is not None and named.name == "luhn"
+    spec = ChecksumSpec(mode="weighted_sum", modulus=10, weights=[3, 7, 1])
+    wm = resolve_validator("weighted_modulus", spec)
+    assert wm is not None and wm.name == "weighted_modulus"
+    assert wm.check("011000015") is True
+    assert resolve_validator("weighted_modulus", None) is None  # unparameterised → no-op
+    assert resolve_validator("nope", None) is None

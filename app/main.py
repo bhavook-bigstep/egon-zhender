@@ -34,6 +34,7 @@ from fastapi.templating import Jinja2Templates
 from openpyxl import Workbook
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from libs.checksums import SELECTABLE_VALIDATORS
 from libs.config import load_ws1_config
 from libs.eval.golden import DEFAULT_GOLDEN_DIR, load_golden_truth
 from libs.eval.metrics import evaluate
@@ -476,6 +477,7 @@ def create_app(
                 "config_version": _config_meta()["config_version"],
                 "summary": summary,
                 "categories": load_ws1_config(config_path).taxonomy.categories,
+                "validators": SELECTABLE_VALIDATORS,  # checksum options for the form
                 "active": "recognizers",
                 "page_title": "Recognizers",
             },

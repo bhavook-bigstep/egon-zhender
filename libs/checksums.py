@@ -9,6 +9,11 @@ labelling a finding with a rule ID rather than a probabilistic score.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from libs.schemas import ChecksumSpec
 
 
 def luhn(value: str) -> bool:
@@ -75,3 +80,90 @@ VALIDATORS: dict[str, Callable[[str], bool]] = {
     "iban_mod97": iban_mod97,
     "aba_routing": aba_routing,
 }
+
+
+def _compact(value: str) -> str:
+    """Uppercase, alphanumeric-only view of the value (spaces/punctuation stripped)."""
+    return "".join(ch for ch in value.upper() if ch.isalnum())
+
+
+def _char_value(ch: str, alphabet: str) -> int | None:
+    """Single-symbol value: digits → 0-9; with the `alnum` alphabet, A-Z → 10-35."""
+    if ch.isdigit():
+        return int(ch)
+    if alphabet == "alnum" and "A" <= ch <= "Z":
+        return ord(ch) - ord("A") + 10
+    return None
+
+
+def weighted_modulus(value: str, spec: ChecksumSpec) -> bool:
+    """Declarative check-digit validation (no user code). See schemas.ChecksumSpec.
+
+    `weighted_sum`: Σ(symbol_value × weight) mod m == expect, weights cycled across the
+    symbols (from the left or right). Covers ABA (mod 10, [3,7,1]), ISBN-10 (mod 11), and
+    many national-ID/VAT schemes. `integer`: read the value as one integer (each symbol's
+    decimal expansion concatenated, optional left rotation) mod m == expect — IBAN-style.
+    Any malformed input returns ``False`` rather than raising (Contract 3 discipline).
+    """
+    compact = _compact(value)
+    if not compact:
+        return False
+    if spec.mode == "integer":
+        rotated = compact[spec.rotate :] + compact[: spec.rotate]
+        digits: list[str] = []
+        for ch in rotated:
+            symbol = _char_value(ch, spec.alphabet)
+            if symbol is None:
+                return False
+            digits.append(str(symbol))
+        return int("".join(digits)) % spec.modulus == spec.expect
+    # weighted_sum
+    values: list[int] = []
+    for ch in compact:
+        symbol = _char_value(ch, spec.alphabet)
+        if symbol is None:
+            return False
+        values.append(symbol)
+    weights = spec.weights
+    if not weights:
+        return False
+    count = len(values)
+    total = 0
+    for index, symbol in enumerate(values):
+        position = index if spec.align == "left" else (count - 1 - index)
+        total += symbol * weights[position % len(weights)]
+    return total % spec.modulus == spec.expect
+
+
+@dataclass(frozen=True)
+class ResolvedValidator:
+    """A checksum ready to run: a stable name (for the finding's rule_id / reason) and the
+    boolean check to apply to a matched substring."""
+
+    name: str
+    check: Callable[[str], bool]
+
+
+def resolve_validator(name: str | None, spec: ChecksumSpec | None) -> ResolvedValidator | None:
+    """Resolve a validator name (+ optional weighted_modulus spec) to a runnable check.
+    Returns None when there is nothing to run (no validator, or a misconfigured one)."""
+    if not name:
+        return None
+    if name == "weighted_modulus":
+        if spec is None:
+            return None  # declared but unparameterised → treat as no validator
+        return ResolvedValidator(name, lambda value: _safe(weighted_modulus, value, spec))
+    fn = VALIDATORS.get(name)
+    return ResolvedValidator(name, fn) if fn is not None else None
+
+
+def _safe(fn: Callable[..., bool], *args: object) -> bool:
+    """Never let a checksum raise — malformed input is just an invalid identifier."""
+    try:
+        return bool(fn(*args))
+    except Exception:
+        return False
+
+
+# Validator names selectable from config / the UI (named built-ins + the parameterised one).
+SELECTABLE_VALIDATORS: list[str] = [*sorted(VALIDATORS), "weighted_modulus"]

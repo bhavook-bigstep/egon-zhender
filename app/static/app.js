@@ -1518,7 +1518,9 @@ function initRecognizers() {
       tr.appendChild(cell(r.regex, "mono"));
       tr.appendChild(cell(scoreText(r.score)));
       tr.appendChild(cell((r.context || []).join(", ") || "—"));
-      tr.appendChild(cell(r.deterministic ? "deterministic" : "classifier"));
+      let kind = r.deterministic ? "deterministic" : "classifier";
+      if (r.validator) kind = "checksum · " + r.validator;  // checksum → deterministic on pass
+      tr.appendChild(cell(kind));
       const td = document.createElement("td");
       const btn = document.createElement("button");
       btn.className = "ghost";
@@ -1537,6 +1539,13 @@ function initRecognizers() {
       /* leave the table as-is on a transient error */
     }
   }
+  // Reveal the weighted-modulus parameter panel only when that checksum is chosen.
+  const validatorSel = document.getElementById("rec-validator");
+  const wmPanel = document.getElementById("wm-params");
+  if (validatorSel && wmPanel)
+    validatorSel.addEventListener("change", () => {
+      wmPanel.hidden = validatorSel.value !== "weighted_modulus";
+    });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (msg) msg.textContent = "";
@@ -1551,7 +1560,22 @@ function initRecognizers() {
       score: parseFloat(fd.get("score")) || 0.4,
       context: context,
       deterministic: fd.get("deterministic") === "on",
+      validator: fd.get("validator") || null,
+      checksum: null,
     };
+    if (payload.validator === "weighted_modulus") {
+      const weights = String(fd.get("wm_weights") || "")
+        .split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !Number.isNaN(n));
+      payload.checksum = {
+        mode: fd.get("wm_mode") || "weighted_sum",
+        modulus: parseInt(fd.get("wm_modulus"), 10) || 0,
+        expect: parseInt(fd.get("wm_expect"), 10) || 0,
+        alphabet: fd.get("wm_alphabet") || "digits",
+        weights: weights,
+        align: fd.get("wm_align") || "left",
+        rotate: parseInt(fd.get("wm_rotate"), 10) || 0,
+      };
+    }
     try {
       const res = await fetch("/api/admin/recognizers", {
         method: "POST",
@@ -1564,6 +1588,7 @@ function initRecognizers() {
         return;
       }
       form.reset();
+      if (wmPanel) wmPanel.hidden = true;  // reset() doesn't fire change
       if (msg) msg.textContent = "Added — applies to the next run.";
       render(data.recognizers || []);
     } catch (err) {

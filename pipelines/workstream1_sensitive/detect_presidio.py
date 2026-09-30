@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from libs.checksums import VALIDATORS
+from libs.checksums import ResolvedValidator, resolve_validator
 from libs.schemas import (
     Band,
     CalibrationStatus,
@@ -26,13 +26,17 @@ from libs.schemas import (
 from pipelines.workstream1_sensitive.extract import ExtractedText, resolve_location
 
 
-def validators_for(cfg: DetectConfig) -> dict[str, str]:
-    """entity_type -> checksum-validator name, from the config's custom recognisers."""
-    return {
-        rec.supported_entity: rec.validator
-        for rec in cfg.custom_recognizers
-        if rec.validator
-    }
+def validators_for(cfg: DetectConfig) -> dict[str, ResolvedValidator]:
+    """entity_type -> resolved checksum, from the config's custom recognisers. A named
+    built-in (luhn/iban_mod97/aba_routing) or the parameterised `weighted_modulus`."""
+    resolved: dict[str, ResolvedValidator] = {}
+    for rec in cfg.custom_recognizers:
+        if not rec.validator:
+            continue
+        validator = resolve_validator(rec.validator, rec.checksum)
+        if validator is not None:
+            resolved[rec.supported_entity] = validator
+    return resolved
 
 
 def map_presidio_results(
@@ -42,7 +46,7 @@ def map_presidio_results(
     spans: list[tuple[EvidenceLocation, str]],
     *,
     text: str = "",
-    validators: dict[str, str] | None = None,
+    validators: dict[str, ResolvedValidator] | None = None,
 ) -> list[Finding]:
     """Map Presidio recogniser results (objects with entity_type/start/end/score) to
     findings, anchoring each to its span location. Shared by both Presidio engines.
@@ -59,10 +63,9 @@ def map_presidio_results(
         if category is None:
             continue  # entity not in the approved taxonomy mapping
         location = resolve_location(result.start, result.end, spans)
-        validator_name = validators.get(entity)
-        if validator_name is not None:
-            check = VALIDATORS.get(validator_name)
-            if check is not None and not check(text[result.start : result.end]):
+        validator = validators.get(entity)
+        if validator is not None:
+            if not validator.check(text[result.start : result.end]):
                 continue  # checksum failed → not a real identifier, drop it
             findings.append(
                 Finding(
@@ -70,13 +73,13 @@ def map_presidio_results(
                     finding_id=f"{entity}-{index}",
                     category=category,
                     reason_code="presidio_checksum",
-                    reason_text=f"{entity} passed {validator_name} checksum",
+                    reason_text=f"{entity} passed {validator.name} checksum",
                     score_type=ScoreType.DETERMINISTIC_MATCH,
                     band=Band.DETERMINISTIC,
                     calibration_status=CalibrationStatus.NOT_APPLICABLE,
                     evidence_location=location,
                     detector_version=cfg.detector_version,
-                    rule_id=f"{entity}:{validator_name}",
+                    rule_id=f"{entity}:{validator.name}",
                     score=None,
                 )
             )
