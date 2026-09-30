@@ -9,9 +9,15 @@
   <script src="/static/app.js?v={{ asset_ver }}" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/">Prince Houston <span>· Data Cleansing PoC</span></a>
-    <nav>
+  <aside class="sidenav" id="sidenav">
+    {% include "_sidebar.html" %}
+  </aside>
+  <div class="scrim" id="nav-scrim" hidden></div>
+
+  <div class="app-main">
+    <header class="topbar">
+      <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Menu">≡</button>
+      <span class="topbar-title">{{ page_title | default("", true) }}</span>
       <div class="notif-menu">
         <button type="button" id="notif-btn" class="nav-btn" aria-label="Jobs">
           Jobs <span id="notif-badge" class="badge" hidden></span>
@@ -24,19 +30,18 @@
           <div id="notif-list" class="notif-list"></div>
         </div>
       </div>
-      <a href="/admin">Admin</a>
-    </nav>
-  </header>
+    </header>
 
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      Metadata-only surface · source is read-only · no document content or raw identifiers
+      leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
+    </footer>
+  </div>
 
   <div id="toasts" aria-live="polite"></div>
-
-  <footer class="footer">
-    Metadata-only surface · source is read-only · no document content or raw identifiers
-    leave the approved boundary. Local PoC (no auth) — bind to 127.0.0.1.
-  </footer>
 </body>
 </html>

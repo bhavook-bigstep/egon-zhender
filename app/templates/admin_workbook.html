@@ -1,11 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Admin · Workbook{% endblock %}
+{% block title %}Records{% endblock %}
 {% block content %}
-  <div id="admin">
-    {% set active = "workbook" %}
-    {% include "_admin_header.html" %}
+  <div id="admin" data-job-scope="{{ job_scope }}" data-reveal="{{ '1' if reveal_enabled else '0' }}">
+    <span class="eyebrow">Records</span>
+    <h1>Processed records</h1>
+    {% if job_scope %}
+    <p class="meta">
+      <span class="chip">job {{ job_scope }}</span>
+      <a href="/records">← all records (latest per input)</a>
+    </p>
+    {% else %}
+    <p class="meta">Latest processed row per input (deduplicated across jobs).</p>
+    {% endif %}
 
-    <h2>Processed records — latest per input</h2>
     <div class="controls">
       <a class="btn" href="/api/admin/records/export?fmt=xlsx">Download Excel</a>
       <a class="btn ghost" href="/api/admin/records/export?fmt=csv">CSV</a>
@@ -34,11 +41,14 @@
         <thead>
           <tr><th>Source ID</th><th>Type</th><th>Status</th><th>Categories</th>
               <th>Strongest</th><th>Calibration</th><th>Review</th><th>Adjudicate</th>
-              <th>Latest job</th></tr>
+              <th></th></tr>
         </thead>
         <tbody id="records-body"></tbody>
       </table>
     </div>
     <p id="records-empty" class="muted" hidden>No processed records yet.</p>
   </div>
+
+  {# Master-detail: findings + gated reveal + provenance for one record, opened on click. #}
+  <dialog id="record-dialog" class="finding-dialog"></dialog>
 {% endblock %}

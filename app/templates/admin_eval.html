@@ -2,10 +2,10 @@
 {% block title %}Admin · Evaluate{% endblock %}
 {% block content %}
   <div id="admin">
-    {% set active = "eval" %}
-    {% include "_admin_header.html" %}
+    <span class="eyebrow">Evaluate</span>
+    <h1>Expected vs actual</h1>
 
-    <h2>Evaluation — expected vs actual (golden truth)</h2>
+    <h2>Flagging — golden truth</h2>
 
     <div class="tiles" id="eval-tiles">
       <div class="stat"><div class="n" id="e-precision">—</div><div class="k">Flag precision</div></div>

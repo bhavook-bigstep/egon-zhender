@@ -2,10 +2,8 @@
 {% block title %}Admin · Recognizers{% endblock %}
 {% block content %}
   <div id="admin" data-categories="{{ categories|join(',') }}">
-    {% set active = "recognizers" %}
-    {% include "_admin_header.html" %}
-
-    <h2>Custom recognizers</h2>
+    <span class="eyebrow">Recognizers</span>
+    <h1>Custom recognizers</h1>
     <p class="meta">
       Added on top of Presidio's built-in recognizers and the config recognizers, on every
       detection request. Map each entity to a taxonomy category so it flags. A base score

@@ -565,9 +565,12 @@ function initAdmin() {
   es.onerror = () => es.close();
 
   async function refreshRecords() {
+    const scope = (document.getElementById("admin") || {}).dataset;
+    const job = scope && scope.jobScope ? scope.jobScope : "";
+    const url = "/api/admin/records" + (job ? "?job=" + encodeURIComponent(job) : "");
     let data;
     try {
-      data = await (await fetch("/api/admin/records")).json();
+      data = await (await fetch(url)).json();
     } catch (e) {
       return;
     }
@@ -624,9 +627,113 @@ function renderRecords(records) {
       if (el) el.addEventListener("change", applyRecordsView);
     });
     const body = document.getElementById("records-body");
-    if (body) body.addEventListener("click", onAdjudicate);
+    if (body) {
+      body.addEventListener("click", onAdjudicate);
+      body.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-details]");
+        if (btn) openRecordDrawer(btn.dataset.details, btn.dataset.job);
+      });
+    }
   }
   applyRecordsView();
+}
+// Master-detail drawer: findings (content-free) + gated reveal + provenance for one record.
+async function openRecordDrawer(sourceId, jobId) {
+  const dlg = document.getElementById("record-dialog");
+  if (!dlg) return;
+  const reveal = ((document.getElementById("admin") || {}).dataset || {}).reveal === "1";
+  dlg.textContent = "";
+  dlg.dataset.jobId = jobId;
+  dlg.dataset.sourceId = sourceId;
+  dlg.dataset.reveal = reveal ? "1" : "0";
+  dlg.dataset.loaded = "0";
+
+  const head = document.createElement("div");
+  head.className = "dialog-head";
+  const title = document.createElement("strong");
+  title.className = "mono";
+  title.textContent = sourceId;
+  const close = document.createElement("button");
+  close.className = "ghost icon";
+  close.setAttribute("data-close", "");
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "✕";
+  head.appendChild(title);
+  head.appendChild(close);
+  dlg.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "dialog-body";
+  const status = document.createElement("p");
+  status.className = "muted";
+  status.textContent = "Loading findings…";
+  body.appendChild(status);
+  dlg.appendChild(body);
+  if (typeof dlg.showModal === "function") dlg.showModal();
+
+  let findings;
+  try {
+    const res = await fetch(
+      "/api/records/" + encodeURIComponent(sourceId) + "/findings?job=" + encodeURIComponent(jobId)
+    );
+    findings = (await res.json()).findings || [];
+  } catch (e) {
+    status.textContent = "Could not load findings.";
+    return;
+  }
+  status.remove();
+  if (!findings.length) {
+    const none = document.createElement("p");
+    none.className = "muted";
+    none.textContent = "No findings for this record.";
+    body.appendChild(none);
+    return;
+  }
+  findings.forEach((f) => body.appendChild(buildFindingCard(f, reveal)));
+  if (reveal) revealDialog(dlg);  // fills the fc-match-slot(s) via the gated reveal endpoint
+}
+function buildFindingCard(f, reveal) {
+  const card = document.createElement("div");
+  card.className = "finding-card";
+  const fh = document.createElement("div");
+  fh.className = "fc-head";
+  const catChip = document.createElement("span");
+  catChip.className = "chip cat";
+  catChip.textContent = f.category;
+  fh.appendChild(catChip);
+  const kind = document.createElement("span");
+  kind.className = "chip" + (f.routing_only ? " similarity" : "");
+  kind.textContent = f.routing_only ? "routing only" : "flag-driving";
+  fh.appendChild(kind);
+  const score = document.createElement("span");
+  score.className = "fc-score";
+  if (f.score == null) score.textContent = "deterministic match";
+  else score.textContent = Number(f.score).toFixed(1) + (f.band ? " · " + f.band : "");
+  fh.appendChild(score);
+  card.appendChild(fh);
+  const reason = document.createElement("div");
+  reason.className = "fc-reason";
+  reason.textContent = f.reason_text || "";
+  card.appendChild(reason);
+  if (reveal) {
+    const slot = document.createElement("div");
+    slot.className = "fc-match-slot";
+    slot.dataset.findingId = f.finding_id;
+    card.appendChild(slot);
+  }
+  const loc = document.createElement("div");
+  loc.className = "fc-meta";
+  const dl = document.createElement("div");
+  const dt = document.createElement("dt");
+  dt.textContent = "Evidence location";
+  const dd = document.createElement("dd");
+  dd.className = "mono";
+  dd.textContent = f.evidence_str || "—";
+  dl.appendChild(dt);
+  dl.appendChild(dd);
+  loc.appendChild(dl);
+  card.appendChild(loc);
+  return card;
 }
 function applyRecordsView() {
   const body = document.getElementById("records-body");
@@ -682,11 +789,12 @@ function recordRow(r) {
   });
   tr.appendChild(adj);
   const td = document.createElement("td");
-  const a = document.createElement("a");
-  a.className = "btn ghost";
-  a.href = "/jobs/" + encodeURIComponent(r.job_id);
-  a.textContent = "results";
-  td.appendChild(a);
+  const btn = document.createElement("button");
+  btn.className = "ghost";
+  btn.textContent = "Details";
+  btn.dataset.details = r.source_id;
+  btn.dataset.job = r.job_id || "";
+  td.appendChild(btn);
   tr.appendChild(td);
   return tr;
 }
@@ -1181,7 +1289,26 @@ function initRecognizers() {
   load();
 }
 
+// ---- sidebar drawer (mobile) ------------------------------------------
+function initNav() {
+  const toggle = document.getElementById("nav-toggle");
+  const scrim = document.getElementById("nav-scrim");
+  if (!toggle) return;
+  const setOpen = (open) => {
+    document.body.classList.toggle("nav-open", open);
+    if (scrim) scrim.hidden = !open;
+  };
+  toggle.addEventListener("click", () =>
+    setOpen(!document.body.classList.contains("nav-open"))
+  );
+  if (scrim) scrim.addEventListener("click", () => setOpen(false));
+  document
+    .querySelectorAll(".sidenav-nav a")
+    .forEach((a) => a.addEventListener("click", () => setOpen(false)));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  initNav();
   initWs1();
   initLive();
   initAdmin();

@@ -35,28 +35,53 @@ body {
   color: var(--ink);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  display: flex; min-height: 100vh;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-dark); text-decoration: none; }
 
-/* Top bar — solid white, hairline, red brand mark */
-.topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px var(--gutter); background: var(--surface);
-  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20;
+/* ---- Console shell: fixed left sidebar + main column ---- */
+.sidenav {
+  flex: 0 0 216px; width: 216px; background: var(--surface); border-right: 1px solid var(--line);
+  padding: 22px 0; position: sticky; top: 0; height: 100vh; overflow-y: auto; z-index: 30;
+  display: flex; flex-direction: column;
 }
+.sidenav .brand { padding: 0 22px 20px; font-size: 14px; }
+.sidenav-nav { display: flex; flex-direction: column; }
+.sidenav-nav a {
+  color: var(--ink); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+  padding: 11px 22px; border-left: 3px solid transparent;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.sidenav-nav a:hover { background: var(--surface-2); text-decoration: none; }
+.sidenav-nav a.active { border-left-color: var(--accent); color: var(--accent-dark); background: var(--surface-2); }
+.sidenav-label { padding: 20px 22px 6px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.sidenav-item.disabled { padding: 11px 22px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--line-strong); font-weight: 700; cursor: not-allowed; }
+.sidenav-item.disabled em { font-style: normal; font-size: 9px; margin-left: 6px; color: var(--muted); border: 1px solid var(--line); padding: 1px 5px; }
+
+.app-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .brand {
-  font-weight: 800; font-size: 15px; letter-spacing: .02em; text-transform: uppercase;
+  font-weight: 800; letter-spacing: .02em; text-transform: uppercase;
   color: var(--accent); display: inline-flex; align-items: baseline;
 }
 .brand span { color: var(--muted); font-weight: 500; letter-spacing: .04em; margin-left: 8px; text-transform: none; }
-.topbar nav { display: flex; gap: 10px; }
-.topbar nav a {
-  color: var(--ink); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
-  padding: 9px 20px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-  transition: background .14s, border-color .14s, color .14s;
+
+/* Top bar — hairline, page title + global jobs bell */
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px var(--gutter); background: var(--surface);
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20;
 }
-.topbar nav a:hover { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }
+.topbar-title { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink); margin-right: auto; }
+.nav-toggle { display: none; background: transparent; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); font-size: 18px; line-height: 1; padding: 3px 11px; cursor: pointer; }
+
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .32); z-index: 25; }
+/* Sidebar becomes an off-canvas drawer on narrow screens (one nav tree). */
+@media (max-width: 860px) {
+  .sidenav { position: fixed; left: 0; top: 0; transform: translateX(-100%); transition: transform .2s ease; box-shadow: 2px 0 10px rgba(0, 0, 0, .08); }
+  body.nav-open .sidenav { transform: translateX(0); }
+  .nav-toggle { display: inline-block; }
+}
 
 /* Admin sub-page tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 24px; }

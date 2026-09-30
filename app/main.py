@@ -223,17 +223,34 @@ def create_app(
     service = JobService(config_path, registry)
     worker = Worker(service, registry) if start_worker else None
 
-    def _records_with_reviews() -> list[dict[str, Any]]:
-        """Latest processed row per record, each merged with its current review decision."""
+    def _attach_reviews(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Merge each record's current review decision (pending when none)."""
         review_by_id = reviews.all()
-        rows = _latest_per_record(registry)
-        for row in rows:
+        for row in records:
             decision = review_by_id.get(row["source_id"])
             row["review_status"] = decision["status"] if decision else "pending"
             row["reviewer"] = decision["reviewer"] if decision else None
             row["rationale"] = decision["rationale"] if decision else None
             row["decided_at"] = decision["decided_at"] if decision else None
-        return rows
+        return records
+
+    def _records_with_reviews() -> list[dict[str, Any]]:
+        """Latest processed row per record (deduped across jobs), with review state."""
+        return _attach_reviews(_latest_per_record(registry))
+
+    def _records_for_job(job_id: str) -> list[dict[str, Any]]:
+        """All rows from ONE job (scoped Records view), with review state."""
+        job = registry.get(job_id)
+        if job is None:
+            return []
+        rows, _ = _load_rows_findings(job)
+        records: list[dict[str, Any]] = []
+        for row in rows:
+            record = row.model_dump(mode="json")
+            record["job_id"] = job.job_id
+            record["job_updated_at"] = job.updated_at
+            records.append(record)
+        return _attach_reviews(records)
 
     _manifest_cache: dict[str, list[ManifestEntry]] = {}
 
@@ -295,14 +312,12 @@ def create_app(
 
     # --- pages (server-rendered; UI is a client of the same API) ---
 
-    @app.get("/", response_class=HTMLResponse)
-    def page_hero(request: Request) -> Any:
-        return templates.TemplateResponse(
-            request=request, name="hero.html", context=_config_meta()
-        )
+    @app.get("/")
+    def root_redirect() -> Any:
+        return RedirectResponse("/run", status_code=307)
 
-    @app.get("/ws1", response_class=HTMLResponse)
-    def page_ws1(request: Request) -> Any:
+    @app.get("/run", response_class=HTMLResponse)
+    def page_run(request: Request) -> Any:
         entries = _manifest()  # cached; sliced in memory, not re-fetched per page
         window = entries[:_PAGE_SIZE]
         next_offset = _PAGE_SIZE if len(entries) > _PAGE_SIZE else None
@@ -311,12 +326,18 @@ def create_app(
             name="ws1.html",
             context={
                 **_config_meta(),
+                "active": "run",
+                "page_title": "Run",
                 "items": window,
                 "total": len(entries),
                 "loaded": len(window),
                 "next_offset": next_offset,
             },
         )
+
+    @app.get("/ws1")
+    def ws1_redirect() -> Any:
+        return RedirectResponse("/run", status_code=307)
 
     @app.get("/ws1/rows", response_class=HTMLResponse)
     def page_ws1_rows(request: Request, offset: int = 0) -> Any:
@@ -341,56 +362,38 @@ def create_app(
     @app.get("/ws1/live", response_class=HTMLResponse)
     def page_live(request: Request, source_id: str | None = None) -> Any:
         if not source_id:  # no item selected → send back to the browser to pick one
-            return RedirectResponse("/ws1", status_code=303)
+            return RedirectResponse("/run", status_code=303)
         return templates.TemplateResponse(
-            request=request, name="live.html", context={"source_id": source_id}
+            request=request,
+            name="live.html",
+            context={"source_id": source_id, "active": "run", "page_title": "Live run"},
         )
-
-    # Friendly redirects for base paths that carry no id/param (avoid raw 404/422).
-    @app.get("/jobs")
-    @app.get("/jobs/")
-    def jobs_redirect() -> Any:
-        return RedirectResponse("/admin", status_code=303)
 
     @app.get("/live")
     @app.get("/live/")
     def live_redirect() -> Any:
-        return RedirectResponse("/ws1", status_code=303)
+        return RedirectResponse("/run", status_code=303)
 
-    @app.get("/jobs/{job_id}", response_class=HTMLResponse)
-    def page_results(request: Request, job_id: str) -> Any:
-        job = registry.get(job_id)
-        if job is None:
-            return templates.TemplateResponse(
-                request=request,
-                name="results.html",
-                context={"job": None, "rows": [], "findings_by_source": {}, "reconcile": None},
-                status_code=404,
-            )
-        rows, findings = _load_rows_findings(job)
-        findings_by_source: dict[str, list[dict[str, Any]]] = {}
-        for finding in findings:
-            dumped = finding.model_dump(mode="json")
-            dumped["evidence_str"] = _evidence_str(dumped["evidence_location"])
-            # SIMILARITY is a routing/prioritisation signal, excluded from the flag decision
-            # (score.py); mark it so the workbook can separate it from flag-driving findings.
-            dumped["routing_only"] = dumped["score_type"] == ScoreType.SIMILARITY.value
-            findings_by_source.setdefault(finding.source_id, []).append(dumped)
-        # Reveal is LAZY (per-record, on dialog open) — never eager here. Eagerly re-deriving
-        # matched content for every finding would re-download + re-extract every document from
-        # source at render time (minutes for a 48-item batch). The dialog fetches one record's
-        # spans from /api/jobs/{id}/reveal on demand.
+    @app.get("/jobs", response_class=HTMLResponse)
+    def page_jobs(request: Request) -> Any:
+        summary = registry.migration_summary(_authorised())
+        jobs = registry.list(limit=50)
         return templates.TemplateResponse(
             request=request,
-            name="results.html",
+            name="admin.html",
             context={
-                "job": job,
-                "rows": rows,
-                "findings_by_source": findings_by_source,
-                "reconcile": job.result.reconcile if job.result else None,
-                "reveal_enabled": reveal_matches,
+                "config_version": _config_meta()["config_version"],
+                "summary": summary,
+                "jobs": jobs,
+                "active": "jobs",
+                "page_title": "Jobs",
             },
         )
+
+    @app.get("/jobs/{job_id}")
+    def job_results_redirect(job_id: str) -> Any:
+        # A job's results now live in the unified Records hub, scoped to that job.
+        return RedirectResponse(f"/records?job={job_id}", status_code=307)
 
     @app.get("/api/jobs/{job_id}/reveal")
     def job_reveal(job_id: str, source_id: str) -> dict[str, Any]:
@@ -436,22 +439,8 @@ def create_app(
                 )
         return {"source_id": source_id, "spans": spans}
 
-    @app.get("/admin", response_class=HTMLResponse)
-    def page_admin(request: Request) -> Any:
-        summary = registry.migration_summary(_authorised())
-        jobs = registry.list(limit=50)
-        return templates.TemplateResponse(
-            request=request,
-            name="admin.html",
-            context={
-                "config_version": _config_meta()["config_version"],
-                "summary": summary,
-                "jobs": jobs,
-            },
-        )
-
-    @app.get("/admin/workbook", response_class=HTMLResponse)
-    def page_admin_workbook(request: Request) -> Any:
+    @app.get("/records", response_class=HTMLResponse)
+    def page_records(request: Request, job: str | None = None) -> Any:
         summary = registry.migration_summary(_authorised())
         return templates.TemplateResponse(
             request=request,
@@ -459,11 +448,15 @@ def create_app(
             context={
                 "config_version": _config_meta()["config_version"],
                 "summary": summary,
+                "active": "records",
+                "page_title": "Records",
+                "job_scope": job or "",
+                "reveal_enabled": reveal_matches,
             },
         )
 
-    @app.get("/admin/eval", response_class=HTMLResponse)
-    def page_admin_eval(request: Request) -> Any:
+    @app.get("/evaluate", response_class=HTMLResponse)
+    def page_evaluate(request: Request) -> Any:
         summary = registry.migration_summary(_authorised())
         return templates.TemplateResponse(
             request=request,
@@ -471,11 +464,13 @@ def create_app(
             context={
                 "config_version": _config_meta()["config_version"],
                 "summary": summary,
+                "active": "evaluate",
+                "page_title": "Evaluate",
             },
         )
 
-    @app.get("/admin/recognizers", response_class=HTMLResponse)
-    def page_admin_recognizers(request: Request) -> Any:
+    @app.get("/recognizers", response_class=HTMLResponse)
+    def page_recognizers(request: Request) -> Any:
         summary = registry.migration_summary(_authorised())
         return templates.TemplateResponse(
             request=request,
@@ -484,8 +479,27 @@ def create_app(
                 "config_version": _config_meta()["config_version"],
                 "summary": summary,
                 "categories": load_ws1_config(config_path).taxonomy.categories,
+                "active": "recognizers",
+                "page_title": "Recognizers",
             },
         )
+
+    # Legacy paths → new console routes (keep old links/bookmarks working).
+    @app.get("/admin")
+    def admin_redirect() -> Any:
+        return RedirectResponse("/jobs", status_code=307)
+
+    @app.get("/admin/workbook")
+    def workbook_redirect() -> Any:
+        return RedirectResponse("/records", status_code=307)
+
+    @app.get("/admin/eval")
+    def eval_redirect() -> Any:
+        return RedirectResponse("/evaluate", status_code=307)
+
+    @app.get("/admin/recognizers")
+    def recognizers_redirect() -> Any:
+        return RedirectResponse("/recognizers", status_code=307)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -567,9 +581,33 @@ def create_app(
         return registry.migration_summary(_authorised()).model_dump()
 
     @app.get("/api/admin/records")
-    def admin_records() -> dict[str, Any]:
-        """Latest processed row per input record (deduplicated), with review state."""
-        return {"records": _records_with_reviews()}
+    def admin_records(job: str | None = None) -> dict[str, Any]:
+        """Records with review state: one job's rows when `job` is set, else latest-per-record."""
+        return {"records": _records_for_job(job) if job else _records_with_reviews()}
+
+    @app.get("/api/records/{source_id}/findings")
+    def record_findings(source_id: str, job: str) -> dict[str, Any]:
+        """Content-free findings for ONE record (drawer): category, score type/band, reason,
+        evidence LOCATION — never the matched value (that comes from the gated reveal)."""
+        target = registry.get(job)
+        if target is None:
+            return {"source_id": source_id, "job_id": job, "findings": []}
+        _, findings = _load_rows_findings(target)
+        items = [
+            {
+                "finding_id": finding.finding_id,
+                "category": finding.category,
+                "score_type": finding.score_type.value,
+                "band": finding.band.value if finding.band else None,
+                "score": finding.score,
+                "reason_text": finding.reason_text,
+                "evidence_str": _evidence_str(finding.evidence_location.model_dump(mode="json")),
+                "routing_only": finding.score_type == ScoreType.SIMILARITY,
+            }
+            for finding in findings
+            if finding.source_id == source_id
+        ]
+        return {"source_id": source_id, "job_id": job, "findings": items}
 
     @app.get("/api/admin/reviews")
     def list_reviews() -> dict[str, Any]:

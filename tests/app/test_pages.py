@@ -38,12 +38,14 @@ def _poll(client: TestClient, job_id: str, timeout: float = 15.0) -> dict:
     raise AssertionError("job did not finish in time")
 
 
-def test_hero_renders(client: TestClient) -> None:
-    r = client.get("/")
+def test_run_page_renders_in_console_shell(client: TestClient) -> None:
+    assert client.get("/", follow_redirects=False).status_code == 307  # / → /run
+    r = client.get("/run")
     assert r.status_code == 200
-    assert "Workstream 1" in r.text
-    assert 'href="/ws1"' in r.text
-    assert 'id="notif-btn"' in r.text  # global jobs notification button in the navbar
+    assert 'class="sidenav"' in r.text  # console shell sidebar
+    assert 'href="/records"' in r.text  # a sidebar section link
+    assert 'id="rows"' in r.text  # the source browser
+    assert 'id="notif-btn"' in r.text  # global jobs bell
 
 
 def test_ws1_browser_is_metadata_only(client: TestClient) -> None:
@@ -71,13 +73,13 @@ def test_live_page_wires_source_id(client: TestClient) -> None:
     assert 'class="steps"' in r.text  # horizontal step flow container
 
 
-def test_admin_page_renders(client: TestClient) -> None:
-    r = client.get("/admin")
+def test_jobs_page_renders(client: TestClient) -> None:
+    r = client.get("/jobs")
     assert r.status_code == 200
     assert "Migration" in r.text
     assert "Authorised" in r.text
-    assert 'id="jobs-body"' in r.text  # Jobs sub-page
-    assert 'href="/admin/workbook"' in r.text  # tab to the Workbook sub-page
+    assert 'id="jobs-body"' in r.text  # jobs monitor table
+    assert 'href="/records"' in r.text  # sidebar section link
 
 
 def test_admin_workbook_page_renders(client: TestClient) -> None:
@@ -110,12 +112,12 @@ def test_admin_records_export_formats(client: TestClient) -> None:
     assert jsonl.text.strip().count("\n") == 4  # 5 records → 5 lines
 
 
-def test_admin_eval_page_renders(client: TestClient) -> None:
-    r = client.get("/admin/eval")
+def test_evaluate_page_renders(client: TestClient) -> None:
+    r = client.get("/evaluate")
     assert r.status_code == 200
     assert 'id="eval-body"' in r.text
     assert "expected vs actual" in r.text.lower()
-    assert 'href="/admin/eval"' in r.text  # the Evaluate tab
+    assert 'href="/evaluate"' in r.text  # sidebar section link
 
 
 def test_admin_eval_api_against_matching_truth(
@@ -168,44 +170,49 @@ def test_admin_records_latest_per_input(client: TestClient) -> None:
     assert recs2["note_001"]["job_id"] != submitted["job_id"]  # newer job wins
 
 
-def test_results_page_after_batch(client: TestClient) -> None:
+def test_records_scoped_to_a_job(client: TestClient) -> None:
+    """/jobs/{id} redirects into the Records hub scoped to that job (content-free)."""
     submitted = client.post(
         "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
     ).json()
     _poll(client, submitted["job_id"])
-    r = client.get(f"/jobs/{submitted['job_id']}")
-    assert r.status_code == 200
-    assert "Workbook" in r.text
-    assert "Reconciled" in r.text
-    assert "note_001" in r.text
-    for token in SENSITIVE_TOKENS:
-        assert token not in r.text  # workbook shows categories/locations, not content
+    jid = submitted["job_id"]
+    red = client.get(f"/jobs/{jid}", follow_redirects=False)
+    assert red.status_code == 307 and red.headers["location"] == f"/records?job={jid}"
+    recs = client.get(f"/api/admin/records?job={jid}").json()["records"]
+    assert any(r["source_id"] == "note_001" for r in recs)
+    assert not any(tok in json.dumps(recs) for tok in SENSITIVE_TOKENS)  # content-free
 
 
-def test_results_page_findings_open_in_dialog(client: TestClient) -> None:
-    """Findings render as a modal dialog (opened by a per-row button), not a nested table."""
+def test_record_findings_api_and_drawer(client: TestClient) -> None:
+    """Findings for a record come from a content-free API; the Records page has the drawer."""
     submitted = client.post(
         "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
     ).json()
     _poll(client, submitted["job_id"])
-    r = client.get(f"/jobs/{submitted['job_id']}")
-    assert r.status_code == 200
-    assert 'data-dialog="finding-dlg-' in r.text  # per-row opener button
-    assert "<dialog" in r.text and "finding-card" in r.text  # server-rendered modal
-    for token in SENSITIVE_TOKENS:
-        assert token not in r.text  # dialog shows reason template + location only
+    jid = submitted["job_id"]
+    recs = client.get(f"/api/admin/records?job={jid}").json()["records"]
+    flagged = next(r for r in recs if r["flag_status"] == "flagged")
+    fnd = client.get(f"/api/records/{flagged['source_id']}/findings?job={jid}").json()
+    assert fnd["findings"]
+    assert all("category" in f and "evidence_str" in f for f in fnd["findings"])
+    assert not any(tok in json.dumps(fnd) for tok in SENSITIVE_TOKENS)  # location, not value
+    assert 'id="record-dialog"' in client.get("/records").text  # detail drawer present
 
 
 def test_matched_content_is_gated_off_by_default(client: TestClient) -> None:
-    """The default app must NOT reveal matched PII spans (production-safe default)."""
+    """The default app must NOT reveal matched PII: findings are content-free, reveal is empty."""
     submitted = client.post(
         "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
     ).json()
     _poll(client, submitted["job_id"])
-    r = client.get(f"/jobs/{submitted['job_id']}")
-    assert "Matched content" not in r.text
-    for token in SENSITIVE_TOKENS:
-        assert token not in r.text
+    jid = submitted["job_id"]
+    recs = client.get(f"/api/admin/records?job={jid}").json()["records"]
+    flagged = next(r for r in recs if r["flag_status"] == "flagged")
+    fnd = client.get(f"/api/records/{flagged['source_id']}/findings?job={jid}").json()
+    assert not any(tok in json.dumps(fnd) for tok in SENSITIVE_TOKENS)
+    rev = client.get(f"/api/jobs/{jid}/reveal?source_id={flagged['source_id']}").json()
+    assert rev["spans"] == []  # reveal off by default
 
 
 def test_matched_content_reveals_when_opted_in(tmp_path: Path) -> None:
@@ -222,10 +229,8 @@ def test_matched_content_reveals_when_opted_in(tmp_path: Path) -> None:
             "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
         ).json()
         _poll(c, submitted["job_id"])
-        r = c.get(f"/jobs/{submitted['job_id']}")
-        # Page renders WITHOUT eager reveal (no re-extraction of every doc): no span inline.
-        assert "fc-match-slot" in r.text and "<mark>" not in r.text
-        # Reveal is lazy per-record: the dialog fetches one record's span on open.
+        # The Records page signals reveal-on; the drawer fetches spans lazily per record.
+        assert 'data-reveal="1"' in c.get("/records").text
         flagged = next(
             row["source_id"]
             for row in c.get("/api/admin/records").json()["records"]
@@ -294,18 +299,19 @@ def test_reveal_enabled_via_config_flag(tmp_path: Path) -> None:
 
 
 def test_base_paths_redirect(client: TestClient) -> None:
-    """/jobs/ and /live/ (no id/param) redirect instead of raw 404/422."""
-    for path, target in [("/jobs/", "/admin"), ("/jobs", "/admin"),
-                         ("/live/", "/ws1"), ("/live", "/ws1")]:
+    """Legacy/base paths redirect into the console; /jobs is now a real page."""
+    for path, target in [("/live/", "/run"), ("/live", "/run"),
+                         ("/admin", "/jobs"), ("/admin/workbook", "/records")]:
         r = client.get(path, follow_redirects=False)
         assert r.status_code in (303, 307), path
         assert r.headers["location"] == target, path
+    assert client.get("/jobs").status_code == 200  # /jobs is the monitor page
 
 
-def test_live_without_source_redirects_to_browser(client: TestClient) -> None:
+def test_live_without_source_redirects_to_run(client: TestClient) -> None:
     r = client.get("/ws1/live", follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/ws1"
+    assert r.headers["location"] == "/run"
 
 
 def test_unknown_path_renders_branded_404(client: TestClient) -> None:
@@ -314,10 +320,11 @@ def test_unknown_path_renders_branded_404(client: TestClient) -> None:
     assert "Page not found" in r.text
 
 
-def test_results_page_not_found(client: TestClient) -> None:
-    r = client.get("/jobs/does-not-exist")
-    assert r.status_code == 404
-    assert "not found" in r.text.lower()
+def test_unknown_job_redirects_to_records(client: TestClient) -> None:
+    red = client.get("/jobs/does-not-exist", follow_redirects=False)
+    assert red.status_code == 307
+    assert "records?job=does-not-exist" in red.headers["location"]
+    assert client.get("/api/admin/records?job=does-not-exist").json()["records"] == []
 
 
 def test_static_htmx_is_served(client: TestClient) -> None:
@@ -345,11 +352,10 @@ def test_results_page_renders_inline_items_from_interactive(client: TestClient) 
                     job_id = msg["result"]["job_id"]
                     break
     assert job_id is not None
-    r = client.get(f"/jobs/{job_id}")
-    assert r.status_code == 200
-    assert "note_001" in r.text and "Workbook" in r.text
-    for token in SENSITIVE_TOKENS:
-        assert token not in r.text
+    # Interactive stores rows inline on the job → exercises the inline-items branch.
+    recs = client.get(f"/api/admin/records?job={job_id}").json()["records"]
+    assert any(r["source_id"] == "note_001" for r in recs)
+    assert not any(tok in json.dumps(recs) for tok in SENSITIVE_TOKENS)
 
 
 def test_results_page_job_without_result_renders_200(tmp_path: Path) -> None:
@@ -364,9 +370,10 @@ def test_results_page_job_without_result_renders_200(tmp_path: Path) -> None:
         submitted = c.post(
             "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
         ).json()
-        r = c.get(f"/jobs/{submitted['job_id']}")
-    assert r.status_code == 200
-    assert "No rows yet" in r.text
+        # /jobs/{id} redirects into Records; a job with no result yet → empty scoped list.
+        assert c.get(f"/jobs/{submitted['job_id']}", follow_redirects=False).status_code == 307
+        assert c.get(f"/api/admin/records?job={submitted['job_id']}").json()["records"] == []
+        assert c.get("/records").status_code == 200
 
 
 def test_manifest_fetched_once_across_pagination(
@@ -399,10 +406,10 @@ def test_manifest_fetched_once_across_pagination(
 
 
 def test_recognizers_page_renders(client: TestClient) -> None:
-    r = client.get("/admin/recognizers")
+    r = client.get("/recognizers")
     assert r.status_code == 200
     assert 'id="rec-form"' in r.text
-    assert 'href="/admin/recognizers"' in r.text  # the Recognizers tab
+    assert 'href="/recognizers"' in r.text  # sidebar section link
 
 
 def test_recognizers_crud_api(
