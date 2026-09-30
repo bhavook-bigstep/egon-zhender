@@ -14,6 +14,10 @@ inference:
   model_version: mock-0
   approval_written: false
   is_local: true            # openweight: false for a managed endpoint (needs approval)
+  # Explicit span budget sent to the model — NOT the 512 default, which silently blinds the
+  # model layer past char 512 (e.g. an identifier at char ~669 is never assessed). Production:
+  # window/chunk long documents rather than assess only the head span.
+  max_span_chars: 8000
   # openweight example (real path):
   # provider: openweight
   # model_version: qwen3.8-27b

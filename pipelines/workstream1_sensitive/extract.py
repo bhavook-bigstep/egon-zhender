@@ -69,16 +69,21 @@ def text_result(
     spans: list[tuple[EvidenceLocation, str]],
     *,
     coverage_complete: bool,
+    image_coverage: float = 0.0,
     ocr_used: bool = False,
 ) -> ExtractedText:
-    """Assemble an ExtractedText from recovered text + spans (shared by all engines)."""
+    """Assemble an ExtractedText from recovered text + spans (shared by all engines).
+
+    `image_coverage` is the fraction of the item with no recoverable text layer (e.g. the
+    scanned pages of a mixed PDF). A non-zero value lets the OCR gate engage those images
+    instead of reporting a partially-read document as fully processed (Contract 3/4)."""
     return ExtractedText(
         source_id=source_id,
         text=text,
         spans=spans,
         has_text_layer=bool(text.strip()),
         printable_ratio=printable_ratio(text),
-        image_coverage=0.0,
+        image_coverage=image_coverage,
         coverage_complete=coverage_complete,
         ocr_used=ocr_used,
     )

@@ -26,11 +26,23 @@ DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _assemble(source_id: str, spans: list[tuple[EvidenceLocation, str]]) -> ExtractedText:
+def _assemble(
+    source_id: str,
+    spans: list[tuple[EvidenceLocation, str]],
+    *,
+    image_coverage: float = 0.0,
+    coverage_complete: bool = True,
+) -> ExtractedText:
     if not any(text.strip() for _, text in spans):
         return no_text_layer_result(source_id)  # no recoverable text → OCR gate
     text = "\n".join(text for _, text in spans)
-    return text_result(source_id, text, spans, coverage_complete=True)
+    return text_result(
+        source_id,
+        text,
+        spans,
+        coverage_complete=coverage_complete,
+        image_coverage=image_coverage,
+    )
 
 
 class NativeExtractor:
@@ -51,6 +63,7 @@ class NativeExtractor:
 
         try:
             reader = PdfReader(io.BytesIO(data))
+            pages_total = len(reader.pages)
             spans: list[tuple[EvidenceLocation, str]] = []
             for page_index, page in enumerate(reader.pages):
                 page_text = (page.extract_text() or "").strip()
@@ -62,7 +75,19 @@ class NativeExtractor:
             raise PipelineItemError(
                 ExceptionCode.EXTRACTION_ERROR, f"pdf parse failed for {source_id}"
             ) from exc
-        return _assemble(source_id, spans)
+        # Pages with no recoverable text are (almost always) scanned images. Record their
+        # fraction so the OCR gate engages them and a mixed PDF is reported PARTIAL, not
+        # COMPLETE — instead of silently dropping the scanned pages.
+        pages_with_text = len(spans)
+        image_coverage = (
+            0.0 if pages_total == 0 else (pages_total - pages_with_text) / pages_total
+        )
+        return _assemble(
+            source_id,
+            spans,
+            image_coverage=image_coverage,
+            coverage_complete=(pages_with_text == pages_total),
+        )
 
     def _docx(self, source_id: str, data: bytes) -> ExtractedText:
         from docx import Document

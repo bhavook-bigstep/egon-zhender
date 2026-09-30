@@ -28,7 +28,7 @@ def build_detection_engine(cfg: DetectConfig) -> DetectionEngine:
     if cfg.engine == "regex":
         from pipelines.workstream1_sensitive.detect_regex import RegexEngine
 
-        return RegexEngine(cfg.recognisers)
+        return RegexEngine(cfg)
     if cfg.engine == "presidio":
         from pipelines.workstream1_sensitive.detect_presidio import PresidioEngine
 

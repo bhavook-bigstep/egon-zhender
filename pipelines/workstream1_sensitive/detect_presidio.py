@@ -12,6 +12,7 @@ the mapping with a fake analyzer and need no Presidio/spaCy install.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from libs.checksums import ResolvedValidator, resolve_validator
@@ -24,6 +25,18 @@ from libs.schemas import (
     ScoreType,
 )
 from pipelines.workstream1_sensitive.extract import ExtractedText, resolve_location
+
+logger = logging.getLogger("ws1.detect")
+
+
+def log_unmapped(unmapped: dict[str, int]) -> None:
+    """Make detected-but-unmapped entities visible (aggregate type counts, no PII)."""
+    if unmapped:
+        logger.warning(
+            "detect: %d Presidio hit(s) detected but unmapped to a taxonomy category: %s",
+            sum(unmapped.values()),
+            dict(sorted(unmapped.items())),
+        )
 
 
 def validators_for(cfg: DetectConfig) -> dict[str, ResolvedValidator]:
@@ -47,6 +60,7 @@ def map_presidio_results(
     *,
     text: str = "",
     validators: dict[str, ResolvedValidator] | None = None,
+    unmapped: dict[str, int] | None = None,
 ) -> list[Finding]:
     """Map Presidio recogniser results (objects with entity_type/start/end/score) to
     findings, anchoring each to its span location. Shared by both Presidio engines.
@@ -54,6 +68,10 @@ def map_presidio_results(
     If an entity has a checksum `validator` configured, the matched substring is verified:
     a PASS becomes a DETERMINISTIC_MATCH; a FAIL drops the finding. The matched value is used
     transiently for the check only — never logged or persisted (Contract 2).
+
+    Entities Presidio detects but that are not in `category_map` are counted into `unmapped`
+    (if given) rather than silently discarded — Presidio detects EMAIL_ADDRESS / PHONE_NUMBER
+    by default, so an unmapped drop is a real recall gap worth surfacing.
     """
     validators = validators or {}
     findings: list[Finding] = []
@@ -61,6 +79,8 @@ def map_presidio_results(
         entity = result.entity_type
         category = cfg.category_map.get(entity)
         if category is None:
+            if unmapped is not None:  # detected but unmapped → visible, not a silent drop
+                unmapped[entity] = unmapped.get(entity, 0) + 1
             continue  # entity not in the approved taxonomy mapping
         location = resolve_location(result.start, result.end, spans)
         validator = validators.get(entity)
@@ -137,11 +157,15 @@ class PresidioEngine:
             language=self._cfg.presidio_language,
             score_threshold=self._cfg.presidio_score_threshold,
         )
-        return map_presidio_results(
+        self.unmapped_entities: dict[str, int] = {}
+        findings = map_presidio_results(
             results,
             self._cfg,
             extracted.source_id,
             extracted.spans,
             text=extracted.text,
             validators=validators_for(self._cfg),
+            unmapped=self.unmapped_entities,
         )
+        log_unmapped(self.unmapped_entities)
+        return findings

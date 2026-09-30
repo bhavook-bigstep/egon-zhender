@@ -13,6 +13,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from libs.schemas import DetectConfig, ExceptionCode, Finding
 from pipelines.workstream1_sensitive.detect_presidio import (
+    log_unmapped,
     map_presidio_results,
     validators_for,
 )
@@ -103,11 +104,15 @@ class PresidioHttpEngine:
             )
             for item in raw
         ]
-        return map_presidio_results(
+        self.unmapped_entities: dict[str, int] = {}
+        findings = map_presidio_results(
             results,
             self._cfg,
             extracted.source_id,
             extracted.spans,
             text=extracted.text,
             validators=validators_for(self._cfg),
+            unmapped=self.unmapped_entities,
         )
+        log_unmapped(self.unmapped_entities)
+        return findings

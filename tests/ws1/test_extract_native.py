@@ -64,6 +64,26 @@ def test_native_pdf_extracts_text_if_reportlab_present() -> None:
     assert any(loc.page == 1 for loc, _ in result.spans)
 
 
+def test_native_mixed_pdf_reports_partial_coverage() -> None:
+    # Page 1 born-digital, page 2 a text-less (scanned-style) page → coverage is incomplete:
+    # image_coverage reflects the text-less fraction so the OCR gate can engage, and the row
+    # is NOT reported as fully covered (Contract 3/4 honesty), instead of silently dropping it.
+    pytest.importorskip("reportlab")
+    from reportlab.pdfgen import canvas
+
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer)
+    pdf.drawString(72, 720, f"Statement reference {TOKEN}")
+    pdf.showPage()  # page 1 with text
+    pdf.showPage()  # page 2 with no text layer
+    pdf.save()
+
+    result = EXTRACTOR.extract(_entry(PDF), buffer.getvalue())
+    assert result.has_text_layer and TOKEN in result.text
+    assert result.coverage_complete is False  # not fully processed → PARTIAL downstream
+    assert result.image_coverage == 0.5  # 1 of 2 pages had no text layer
+
+
 def test_native_scanned_pdf_no_text_layer_defers_to_ocr() -> None:
     # Bytes that are not a parseable PDF text layer → no_text_layer (OCR gate handles).
     result = EXTRACTOR.extract(_entry("image/png"), b"\x89PNG\x00binary")
