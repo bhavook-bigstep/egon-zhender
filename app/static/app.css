@@ -58,6 +58,15 @@ a:hover { color: var(--accent-dark); text-decoration: none; }
 }
 .topbar nav a:hover { background: var(--accent); border-color: var(--accent); color: #fff; text-decoration: none; }
 
+/* Admin sub-page tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 8px 0 24px; }
+.tabs a {
+  padding: 12px 20px; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs a:hover { color: var(--ink); text-decoration: none; }
+.tabs a.active { color: var(--ink); border-bottom-color: var(--accent); }
+
 /* Nav jobs button + notifications dropdown */
 .notif-menu { position: relative; }
 .nav-btn {

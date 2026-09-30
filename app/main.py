@@ -9,6 +9,8 @@ module is the backend API + SSE.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import os
 import re
@@ -18,9 +20,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from openpyxl import Workbook
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from libs.config import load_ws1_config
@@ -36,6 +45,21 @@ from pipelines.workstream1_sensitive.worker import Worker
 _APP_DIR = Path(__file__).resolve().parent
 _PAGE_SIZE = 100
 _MATCH_CONTEXT_CHARS = 48
+
+# ws1_item_summary export columns (response §3.4 order) + latest-job provenance.
+_EXPORT_COLUMNS = [
+    "source_id", "content_type", "flag_status", "sensitivity_categories", "reason_summary",
+    "processing_status", "calibration_status", "strongest_band", "strongest_score_type",
+    "strongest_score", "exception_code", "snapshot_id", "content_hash", "run_id",
+    "config_version", "author", "datetime", "linked_executive", "linked_project", "job_id",
+]
+
+
+def _export_cell(record: dict[str, Any], column: str) -> Any:
+    value = record.get(column)
+    if isinstance(value, list):
+        return "; ".join(str(v) for v in value)
+    return "" if value is None else value
 
 
 def _sse(payload: dict[str, Any]) -> str:
@@ -130,6 +154,32 @@ def _reveal_matched_content(
             finding["char_pre"] = text[max(0, start - _MATCH_CONTEXT_CHARS) : start]
             finding["char_match"] = text[start:end]
             finding["char_post"] = text[end : end + _MATCH_CONTEXT_CHARS]
+
+
+def _latest_per_record(registry: JobRegistry) -> list[dict[str, Any]]:
+    """Consolidated view: the LATEST processed row per input source_id across all jobs.
+
+    Newest job wins (by updated_at). Content-free — Ws1Summary carries flag status,
+    categories, score type/band, calibration, exception; never matched content.
+    """
+    jobs = sorted(
+        registry.list(limit=500),
+        key=lambda j: j.updated_at or j.created_at,
+        reverse=True,
+    )
+    seen: dict[str, dict[str, Any]] = {}
+    for job in jobs:
+        if job.result is None:
+            continue
+        rows, _ = _load_rows_findings(job)
+        for row in rows:
+            if row.source_id in seen:
+                continue  # a newer job already recorded this record
+            record = row.model_dump(mode="json")
+            record["job_id"] = job.job_id
+            record["job_updated_at"] = job.updated_at
+            seen[row.source_id] = record
+    return [seen[sid] for sid in sorted(seen)]
 
 
 def _load_rows_findings(job: Job) -> tuple[list[Ws1Summary], list[Finding]]:
@@ -332,6 +382,18 @@ def create_app(
             },
         )
 
+    @app.get("/admin/workbook", response_class=HTMLResponse)
+    def page_admin_workbook(request: Request) -> Any:
+        summary = registry.migration_summary(_authorised())
+        return templates.TemplateResponse(
+            request=request,
+            name="admin_workbook.html",
+            context={
+                "config_version": _config_meta()["config_version"],
+                "summary": summary,
+            },
+        )
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -410,6 +472,48 @@ def create_app(
     @app.get("/api/admin/summary")
     def admin_summary() -> dict[str, Any]:
         return registry.migration_summary(_authorised()).model_dump()
+
+    @app.get("/api/admin/records")
+    def admin_records() -> dict[str, Any]:
+        """Latest processed row per input record (deduplicated across jobs)."""
+        return {"records": _latest_per_record(registry)}
+
+    @app.get("/api/admin/records/export")
+    def admin_records_export(fmt: str = "xlsx") -> Response:
+        """Download the processed records as the §3.4 ws1_item_summary in xlsx/csv/jsonl."""
+        records = _latest_per_record(registry)
+        name = "ws1_item_summary"
+        if fmt == "jsonl":
+            body = "".join(
+                json.dumps({c: r.get(c) for c in _EXPORT_COLUMNS}) + "\n" for r in records
+            )
+            return Response(
+                body, media_type="application/x-ndjson",
+                headers={"Content-Disposition": f'attachment; filename="{name}.jsonl"'},
+            )
+        if fmt == "csv":
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(_EXPORT_COLUMNS)
+            for r in records:
+                writer.writerow([_export_cell(r, c) for c in _EXPORT_COLUMNS])
+            return Response(
+                buf.getvalue(), media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{name}.csv"'},
+            )
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "ws1_item_summary"
+        sheet.append(_EXPORT_COLUMNS)
+        for r in records:
+            sheet.append([_export_cell(r, c) for c in _EXPORT_COLUMNS])
+        out = io.BytesIO()
+        workbook.save(out)
+        return Response(
+            out.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{name}.xlsx"'},
+        )
 
     @app.get("/api/admin/stream")
     def admin_stream(request: Request, max_events: int | None = None) -> StreamingResponse:

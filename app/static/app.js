@@ -417,6 +417,22 @@ function initAdmin() {
   };
   es.onerror = () => es.close();
 
+  async function refreshRecords() {
+    let data;
+    try {
+      data = await (await fetch("/api/admin/records")).json();
+    } catch (e) {
+      return;
+    }
+    renderRecords(data.records || []);
+  }
+  // Only the Workbook sub-page has the records table.
+  const onWorkbook = !!document.getElementById("records-body");
+  if (onWorkbook) {
+    refreshRecords();
+    setInterval(refreshRecords, 4000);
+  }
+
   root.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-action]");
     if (!btn) return;
@@ -426,9 +442,40 @@ function initAdmin() {
     try {
       await fetch("/api/jobs/" + encodeURIComponent(id) + "/" + action, { method: "POST" });
       toast(action + " requested for " + id, { ok: true });
+      if (onWorkbook) refreshRecords();
     } catch (err) {
       toast(action + " failed: " + err);
     }
+  });
+}
+
+function renderRecords(records) {
+  const body = document.getElementById("records-body");
+  const empty = document.getElementById("records-empty");
+  if (!body) return;
+  body.textContent = "";
+  if (empty) empty.hidden = records.length > 0;
+  const count = document.getElementById("records-count");
+  if (count) count.textContent = records.length + " records";
+  records.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(r.source_id, "mono"));
+    tr.appendChild(cell(r.content_type));
+    tr.appendChild(chipCell(r.flag_status, r.flag_status));
+    tr.appendChild(cell((r.sensitivity_categories || []).join(", ")));
+    let strong = r.strongest_score_type || "—";
+    if (r.strongest_band) strong += " · " + r.strongest_band;
+    if (r.strongest_score != null) strong += " · " + Number(r.strongest_score).toFixed(1);
+    tr.appendChild(cell(strong));
+    tr.appendChild(cell(r.calibration_status));
+    const td = document.createElement("td");
+    const a = document.createElement("a");
+    a.className = "btn ghost";
+    a.href = "/jobs/" + encodeURIComponent(r.job_id);
+    a.textContent = "results";
+    td.appendChild(a);
+    tr.appendChild(td);
+    body.appendChild(tr);
   });
 }
 

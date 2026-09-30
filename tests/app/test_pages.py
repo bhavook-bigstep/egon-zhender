@@ -76,6 +76,58 @@ def test_admin_page_renders(client: TestClient) -> None:
     assert r.status_code == 200
     assert "Migration" in r.text
     assert "Authorised" in r.text
+    assert 'id="jobs-body"' in r.text  # Jobs sub-page
+    assert 'href="/admin/workbook"' in r.text  # tab to the Workbook sub-page
+
+
+def test_admin_workbook_page_renders(client: TestClient) -> None:
+    r = client.get("/admin/workbook")
+    assert r.status_code == 200
+    assert 'id="records-body"' in r.text
+    assert "Processed records" in r.text
+    assert "records/export?fmt=xlsx" in r.text  # download link
+
+
+def test_admin_records_export_formats(client: TestClient) -> None:
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+
+    xlsx = client.get("/api/admin/records/export?fmt=xlsx")
+    assert xlsx.status_code == 200
+    assert "spreadsheetml.sheet" in xlsx.headers["content-type"]
+    assert "attachment" in xlsx.headers["content-disposition"]
+
+    csv_r = client.get("/api/admin/records/export?fmt=csv")
+    assert "text/csv" in csv_r.headers["content-type"]
+    assert "source_id" in csv_r.text and "note_001" in csv_r.text
+    for token in SENSITIVE_TOKENS:
+        assert token not in csv_r.text  # export is content-free (no matched values)
+
+    jsonl = client.get("/api/admin/records/export?fmt=jsonl")
+    assert "ndjson" in jsonl.headers["content-type"]
+    assert jsonl.text.strip().count("\n") == 4  # 5 records → 5 lines
+
+
+def test_admin_records_latest_per_input(client: TestClient) -> None:
+    """The records workbook has exactly one (deduplicated) row per input, latest job."""
+    submitted = client.post(
+        "/api/jobs", json={"job_type": "batch", "config_version": CONFIG_VERSION}
+    ).json()
+    _poll(client, submitted["job_id"])
+    recs = client.get("/api/admin/records").json()["records"]
+    ids = [x["source_id"] for x in recs]
+    assert len(ids) == len(set(ids)) == 5  # one per input, deduplicated across jobs
+    assert all("job_id" in x and "flag_status" in x for x in recs)
+    # Re-run one item interactively → its record points at the newer job, still 5 records.
+    with client.stream("GET", "/api/interactive/stream?source_id=note_001") as resp:
+        for line in resp.iter_lines():
+            if line.startswith("data:") and '"done"' in line:
+                break
+    recs2 = {x["source_id"]: x for x in client.get("/api/admin/records").json()["records"]}
+    assert len(recs2) == 5
+    assert recs2["note_001"]["job_id"] != submitted["job_id"]  # newer job wins
 
 
 def test_results_page_after_batch(client: TestClient) -> None:

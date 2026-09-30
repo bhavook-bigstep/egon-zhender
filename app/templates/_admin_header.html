@@ -1,0 +1,22 @@
+  <span class="eyebrow">Monitor</span>
+  <h1>Migration</h1>
+
+  <div class="tiles">
+    <div class="stat"><div class="n" id="m-authorised">{{ summary.authorised }}</div><div class="k">Authorised</div></div>
+    <div class="stat"><div class="n" id="m-processed">{{ summary.processed }}</div><div class="k">Processed</div></div>
+    <div class="stat"><div class="n" id="m-flagged">{{ summary.flagged }}</div><div class="k">Flagged</div></div>
+    <div class="stat"><div class="n" id="m-not_flagged">{{ summary.not_flagged }}</div><div class="k">Not flagged</div></div>
+    <div class="stat"><div class="n" id="m-unable">{{ summary.unable_to_process }}</div><div class="k">Unable</div></div>
+    <div class="stat"><div class="n" id="m-in_progress">{{ summary.in_progress }}</div><div class="k">In progress</div></div>
+    <div class="stat"><div class="n" id="m-remaining">{{ summary.remaining }}</div><div class="k">Remaining</div></div>
+    <div class="stat"><div class="n" id="m-pct">{{ summary.pct_complete }}%</div><div class="k">Complete</div></div>
+  </div>
+
+  <div style="margin:16px 0" class="bar">
+    <span id="m-bar" style="width: {{ summary.pct_complete }}%"></span>
+  </div>
+
+  <div class="tabs">
+    <a href="/admin" class="{{ 'active' if active == 'jobs' else '' }}">Jobs</a>
+    <a href="/admin/workbook" class="{{ 'active' if active == 'workbook' else '' }}">Workbook</a>
+  </div>

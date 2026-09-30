@@ -11,6 +11,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Databricks notebooks use runtime globals (dbutils/spark/display) — not linted as app code.
+extend-exclude = ["datasets/ws1_golden/databricks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

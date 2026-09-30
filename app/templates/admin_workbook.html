@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Admin · Workbook{% endblock %}
+{% block content %}
+  <div id="admin">
+    {% set active = "workbook" %}
+    {% include "_admin_header.html" %}
+
+    <h2>Processed records — latest per input</h2>
+    <div class="controls">
+      <a class="btn" href="/api/admin/records/export?fmt=xlsx">Download Excel</a>
+      <a class="btn ghost" href="/api/admin/records/export?fmt=csv">CSV</a>
+      <a class="btn ghost" href="/api/admin/records/export?fmt=jsonl">JSONL</a>
+      <span id="records-count" class="muted"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Source ID</th><th>Type</th><th>Status</th><th>Categories</th>
+              <th>Strongest</th><th>Calibration</th><th>Latest job</th></tr>
+        </thead>
+        <tbody id="records-body"></tbody>
+      </table>
+    </div>
+    <p id="records-empty" class="muted" hidden>No processed records yet.</p>
+  </div>
+{% endblock %}
