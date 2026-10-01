@@ -4,9 +4,27 @@ from __future__ import annotations
 
 import pytest
 
-from libs.inference.base import InferenceEgressError, InferenceRequest
+from libs.inference.base import (
+    InferenceEgressError,
+    InferenceRequest,
+    parse_assessment,
+)
 from libs.inference.mock import MockProvider
 from libs.schemas import EvidenceLocation
+
+
+def test_parse_assessment_score_and_evidence() -> None:
+    score, evidence = parse_assessment('{"score": 90, "evidence": "swift bic MNBUS47KZX"}')
+    assert score == 90.0
+    assert evidence == "swift bic MNBUS47KZX"
+
+
+def test_parse_assessment_tolerates_fences_and_missing_evidence() -> None:
+    score, evidence = parse_assessment('```json\n{"score": 82}\n```')
+    assert score == 82.0
+    assert evidence is None
+    # empty evidence string → None (nothing to locate)
+    assert parse_assessment('{"score": 70, "evidence": ""}') == (70.0, None)
 
 
 def _request(crosses_boundary: bool) -> InferenceRequest:

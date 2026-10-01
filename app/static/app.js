@@ -957,6 +957,13 @@ function buildFindingCard(f, reveal) {
   kind.className = "chip" + (f.routing_only ? " similarity" : "");
   kind.textContent = f.routing_only ? "routing only" : "flag-driving";
   fh.appendChild(kind);
+  if (f.method) {
+    // Which evaluator flagged it (Presidio / Semantic / LLM / rule) — the reviewer's "who".
+    const by = document.createElement("span");
+    by.className = "chip by";
+    by.textContent = "by " + f.method;
+    fh.appendChild(by);
+  }
   const score = document.createElement("span");
   score.className = "fc-score";
   if (f.score == null) score.textContent = "deterministic match";
@@ -967,11 +974,18 @@ function buildFindingCard(f, reveal) {
   reason.className = "fc-reason";
   reason.textContent = f.reason_text || "";
   card.appendChild(reason);
-  if (reveal) {
+  // Matched content: only for findings with a specific span. A semantic routing signal is
+  // document-level — showing the whole page as "matched content" is noise, so skip it.
+  if (reveal && !f.routing_only) {
     const slot = document.createElement("div");
     slot.className = "fc-match-slot";
     slot.dataset.findingId = f.finding_id;
     card.appendChild(slot);
+  } else if (f.routing_only) {
+    const note = document.createElement("div");
+    note.className = "fc-routing-note";
+    note.textContent = "Document-level routing signal — no specific span (it only decides which categories reach the model).";
+    card.appendChild(note);
   }
   const loc = document.createElement("div");
   loc.className = "fc-meta";

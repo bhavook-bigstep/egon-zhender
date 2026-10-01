@@ -223,6 +223,7 @@ tbody tr:hover td { background: var(--surface-2); }
 .chip.model_score, .chip.classifier_score { border-color: var(--accent); color: var(--accent); }
 .chip.similarity { border-color: var(--line-strong); color: var(--muted); }
 .chip.cat { border-color: var(--ink); color: var(--ink); }
+.chip.by { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
 
 /* Controls + buttons — squared, understated; dark → red on hover */
 .controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin: 24px 0; }
@@ -337,6 +338,7 @@ button.icon { padding: 6px 11px; font-size: 14px; line-height: 1; }
 .fc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .fc-score { margin-left: auto; font-weight: 700; color: var(--ink); }
 .fc-reason { color: var(--ink-soft); margin-bottom: 14px; }
+.fc-routing-note { color: var(--muted); font-size: 13px; font-style: italic; margin-bottom: 4px; }
 .fc-match { margin: 0 0 14px; }
 .fc-match-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
 .fc-match-text { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 12px 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.7; }

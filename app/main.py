@@ -103,6 +103,26 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _detector_label(finding: Finding) -> str:
+    """Which evaluator produced this finding — so the reviewer can see WHO flagged it
+    (the deterministic recognisers, Presidio, the semantic screen, or the LLM)."""
+    reason = finding.reason_code or ""
+    if finding.score_type == ScoreType.SIMILARITY:
+        return "Semantic screen"
+    if finding.score_type == ScoreType.MODEL_SCORE:
+        return "LLM"
+    if finding.score_type == ScoreType.CLASSIFIER_SCORE:
+        return "Presidio (NER)"
+    # DETERMINISTIC_MATCH — distinguish Presidio / checksum / custom / config rule.
+    if reason.startswith("presidio"):
+        return "Presidio (checksum)" if "checksum" in reason else "Presidio"
+    if reason == "custom_checksum":
+        return "Custom checksum"
+    if reason == "custom_regex":
+        return "Custom recogniser"
+    return "Regex rule"
+
+
 def _evidence_str(loc: dict[str, Any]) -> str:
     """Render an evidence location (page/sheet/cell/offset) — never any content."""
     parts = []
@@ -597,6 +617,7 @@ def create_app(
                 "finding_id": finding.finding_id,
                 "category": finding.category,
                 "score_type": finding.score_type.value,
+                "method": _detector_label(finding),  # who flagged it: Presidio/Semantic/LLM/rule
                 "band": finding.band.value if finding.band else None,
                 "score": finding.score,
                 "reason_text": finding.reason_text,

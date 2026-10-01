@@ -41,30 +41,33 @@ def assess(
     """
     if not extracted.text.strip():
         return []
-    span = extracted.text[:max_span_chars]
+    head = extracted.text[:max_span_chars]  # unmasked head — used to LOCATE the evidence
     crosses_boundary = not provider.is_local
-    if crosses_boundary:
-        span = mask_identifiers(span, load_key(hash_key_env))
-    location = EvidenceLocation(char_start=0, char_end=len(span))
+    sent = mask_identifiers(head, load_key(hash_key_env)) if crosses_boundary else head
+    whole_span = EvidenceLocation(char_start=0, char_end=len(head))
     findings: list[Finding] = []
     for category in categories:
         request = InferenceRequest(
             source_id=extracted.source_id,
             category=category,
-            span_location=location,
-            text=span,
+            span_location=whole_span,
+            text=sent,
             crosses_boundary=crosses_boundary,
         )
         result = provider.assess(request)
         if result.score < scoring.flag_threshold:
             continue
+        # Pin the finding to the SPECIFIC substring the model flagged, when we can locate it
+        # (the quote is used only to find offsets — never stored). Falls back to the whole
+        # head span when the model gives no quote or it was masked out of the unmasked text.
+        location, reason = _locate(result.evidence, head, category, result.score, whole_span)
         findings.append(
             Finding(
                 source_id=extracted.source_id,
                 finding_id=f"model-{category}",
                 category=category,
                 reason_code="model_flag",
-                reason_text=f"model score {result.score:.0f} >= flag threshold",
+                reason_text=reason,
                 score_type=ScoreType.MODEL_SCORE,
                 band=None,  # assigned after calibration
                 calibration_status=result.calibration_status,
@@ -74,3 +77,24 @@ def assess(
             )
         )
     return findings
+
+
+def _locate(
+    evidence: str | None,
+    head: str,
+    category: str,
+    score: float,
+    whole_span: EvidenceLocation,
+) -> tuple[EvidenceLocation, str]:
+    """Resolve the model's evidence quote to a precise location + a specific reason.
+
+    Returns the whole-span location + a generic reason when the quote is absent or cannot
+    be found in the unmasked head (e.g. it referenced a masked identifier)."""
+    if evidence:
+        index = head.find(evidence)
+        if index >= 0:
+            return (
+                EvidenceLocation(char_start=index, char_end=index + len(evidence)),
+                f"model flagged a specific {category} instance (score {score:.0f})",
+            )
+    return whole_span, f"model score {score:.0f} >= flag threshold"

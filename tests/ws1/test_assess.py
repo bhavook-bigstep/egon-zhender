@@ -32,6 +32,30 @@ def test_assess_no_hint_no_finding() -> None:
     assert assess(_extracted("entirely benign text"), CATEGORIES, SCORING, provider) == []
 
 
+def test_assess_pins_location_to_model_evidence() -> None:
+    # The model's evidence quote → a precise span (not the whole document).
+    text = "Dear sir, the swift bic MNBUS47KZX is referenced in this long paragraph."
+
+    class _Evidence(_SpyProvider):
+        def assess(self, request: InferenceRequest) -> InferenceResult:
+            self.calls += 1
+            return InferenceResult(score=90.0, model_version="spy", evidence="MNBUS47KZX")
+
+    findings = assess(_extracted(text), ["financial"], SCORING, _Evidence(90.0))
+    loc = findings[0].evidence_location
+    start = text.find("MNBUS47KZX")
+    assert loc.char_start == start
+    assert loc.char_end == start + len("MNBUS47KZX")
+    assert loc.char_end - loc.char_start < len(text)  # not the whole paragraph
+
+
+def test_assess_falls_back_to_whole_span_without_evidence() -> None:
+    provider = _SpyProvider(90.0)  # returns no evidence
+    findings = assess(_extracted("x" * 300), ["financial"], SCORING, provider)
+    loc = findings[0].evidence_location
+    assert loc.char_start == 0 and loc.char_end == 300
+
+
 class _SpyProvider:
     def __init__(self, score: float) -> None:
         self.score = score

@@ -20,7 +20,7 @@ from libs.inference.base import (
     InferenceRequest,
     InferenceResult,
     ensure_egress_allowed,
-    parse_score_text,
+    parse_assessment,
     score_user_content,
 )
 from libs.schemas import CalibrationStatus
@@ -110,15 +110,17 @@ class OpenWeightProvider(InferenceProvider):
         }
 
     @staticmethod
-    def _parse_score(response: dict[str, Any]) -> float:
+    def _parse(response: dict[str, Any]) -> tuple[float, str | None]:
         content = response["choices"][0]["message"]["content"]
-        return parse_score_text(content)
+        return parse_assessment(content)
 
     def assess(self, request: InferenceRequest) -> InferenceResult:
         ensure_egress_allowed(request, self._approval_written)
         response = self._client.complete(self._build_payload(request))
+        score, evidence = self._parse(response)
         return InferenceResult(
-            score=self._parse_score(response),
+            score=score,
+            evidence=evidence,
             model_version=self._model_version,
             calibration_status=CalibrationStatus.NOT_CALIBRATED,
         )

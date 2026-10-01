@@ -43,6 +43,7 @@ class MockProvider(InferenceProvider):
         score = _HIT_SCORE if matched else _MISS_SCORE
         return InferenceResult(
             score=score,
+            evidence=hint if matched else None,  # the hint token locates the span
             model_version=self._model_version,
             calibration_status=CalibrationStatus.NOT_CALIBRATED,
         )

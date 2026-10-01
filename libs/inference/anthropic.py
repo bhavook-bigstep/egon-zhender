@@ -21,7 +21,7 @@ from libs.inference.base import (
     InferenceRequest,
     InferenceResult,
     ensure_egress_allowed,
-    parse_score_text,
+    parse_assessment,
     score_user_content,
 )
 from libs.schemas import CalibrationStatus
@@ -105,16 +105,18 @@ class AnthropicProvider(InferenceProvider):
         }
 
     @staticmethod
-    def _parse_score(response: dict[str, Any]) -> float:
+    def _parse(response: dict[str, Any]) -> tuple[float, str | None]:
         blocks = response.get("content") or []
         text = next((b.get("text", "") for b in blocks if b.get("type") == "text"), "")
-        return parse_score_text(text)  # tolerates markdown fences / trailing prose
+        return parse_assessment(text)  # tolerates markdown fences / trailing prose
 
     def assess(self, request: InferenceRequest) -> InferenceResult:
         ensure_egress_allowed(request, self._approval_written)
         response = self._client.create(self._build_payload(request))
+        score, evidence = self._parse(response)
         return InferenceResult(
-            score=self._parse_score(response),
+            score=score,
+            evidence=evidence,
             model_version=self._model_version,
             calibration_status=CalibrationStatus.NOT_CALIBRATED,
         )

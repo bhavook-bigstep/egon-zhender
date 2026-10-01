@@ -228,6 +228,11 @@ def test_record_findings_api_and_drawer(client: TestClient) -> None:
     fnd = client.get(f"/api/records/{flagged['source_id']}/findings?job={jid}").json()
     assert fnd["findings"]
     assert all("category" in f and "evidence_str" in f for f in fnd["findings"])
+    # Each finding names the evaluator that produced it (who flagged it).
+    assert all(f.get("method") for f in fnd["findings"])
+    known = {"Presidio", "Presidio (NER)", "Presidio (checksum)", "Semantic screen",
+             "LLM", "Custom checksum", "Custom recogniser", "Regex rule"}
+    assert all(f["method"] in known for f in fnd["findings"])
     assert not any(tok in json.dumps(fnd) for tok in SENSITIVE_TOKENS)  # location, not value
     assert 'id="record-dialog"' in client.get("/records").text  # detail drawer present
 
