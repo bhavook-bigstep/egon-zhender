@@ -17,7 +17,7 @@
 {"source_id": "gold-0001", "entity_type": "street_address", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "473 Alborada"}
 {"source_id": "gold-0001", "entity_type": "swift_bic", "category": "financial", "in_taxonomy": true, "value": "MNBUS47KZX"}
 {"source_id": "gold-0002", "entity_type": "device_identifier", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "98765432109876543210987654"}
-{"source_id": "gold-0002", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "thomasp@icloud.com"}
+{"source_id": "gold-0002", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "thomasp@icloud.com"}
 {"source_id": "gold-0002", "entity_type": "mac_address", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "00:38:E1:1A:7C:2F"}
 {"source_id": "gold-0002", "entity_type": "occupation", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "laborer freight stock or material mover"}
 {"source_id": "gold-0002", "entity_type": "pin", "category": "financial", "in_taxonomy": true, "value": "657297"}
@@ -26,9 +26,9 @@
 {"source_id": "gold-0003", "entity_type": "account_number", "category": "financial", "in_taxonomy": true, "value": "976583402198"}
 {"source_id": "gold-0003", "entity_type": "customer_id", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "LAX-3821945"}
 {"source_id": "gold-0003", "entity_type": "date", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "10/15/2023"}
-{"source_id": "gold-0003", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "naomia82@zoho.com"}
-{"source_id": "gold-0003", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "naomia82@zoho.com"}
-{"source_id": "gold-0003", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "naomia82@zoho.com"}
+{"source_id": "gold-0003", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "naomia82@zoho.com"}
+{"source_id": "gold-0003", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "naomia82@zoho.com"}
+{"source_id": "gold-0003", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "naomia82@zoho.com"}
 {"source_id": "gold-0003", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Naomi"}
 {"source_id": "gold-0003", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Naomi"}
 {"source_id": "gold-0003", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Naomi"}
@@ -43,14 +43,14 @@
 {"source_id": "gold-0003", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Jones"}
 {"source_id": "gold-0003", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Jones"}
 {"source_id": "gold-0003", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Jones"}
-{"source_id": "gold-0003", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "303-363-4042"}
+{"source_id": "gold-0003", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "303-363-4042"}
 {"source_id": "gold-0003", "entity_type": "url", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "https://shopify.com/help/support/tickets"}
 {"source_id": "gold-0004", "entity_type": "credit_debit_card", "category": "financial", "in_taxonomy": true, "value": "5278 3890 1276 4589"}
 {"source_id": "gold-0004", "entity_type": "date_of_birth", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "1956-09-28"}
 {"source_id": "gold-0004", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Valerie"}
 {"source_id": "gold-0004", "entity_type": "gender", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "female"}
 {"source_id": "gold-0004", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Carter"}
-{"source_id": "gold-0004", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "818-834-8961"}
+{"source_id": "gold-0004", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "818-834-8961"}
 {"source_id": "gold-0005", "entity_type": "certificate_license_number", "category": "government_id", "in_taxonomy": true, "value": "47856214"}
 {"source_id": "gold-0005", "entity_type": "company_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "FusionCraft Manufacturing"}
 {"source_id": "gold-0005", "entity_type": "company_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "FusionCraft Manufacturing"}
@@ -61,7 +61,7 @@
 {"source_id": "gold-0005", "entity_type": "url", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "https://manufacturinginstitute.org/resources/training-materials"}
 {"source_id": "gold-0006", "entity_type": "company_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "VerdantChem"}
 {"source_id": "gold-0006", "entity_type": "date", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "2023-09-15"}
-{"source_id": "gold-0006", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "kimberlyduffy11@icloud.com"}
+{"source_id": "gold-0006", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "kimberlyduffy11@icloud.com"}
 {"source_id": "gold-0006", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Kimberly"}
 {"source_id": "gold-0006", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Kimberly"}
 {"source_id": "gold-0006", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Duffy"}
@@ -74,7 +74,7 @@
 {"source_id": "gold-0006", "entity_type": "user_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "kimberly_duffy"}
 {"source_id": "gold-0007", "entity_type": "bank_routing_number", "category": "financial", "in_taxonomy": true, "value": "082519476"}
 {"source_id": "gold-0007", "entity_type": "county", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Queens County"}
-{"source_id": "gold-0007", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "richardst@outlook.com"}
+{"source_id": "gold-0007", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "richardst@outlook.com"}
 {"source_id": "gold-0007", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Tranquilino"}
 {"source_id": "gold-0007", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Richards"}
 {"source_id": "gold-0007", "entity_type": "occupation", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Identity Verification Services Job Application Form"}
@@ -181,9 +181,9 @@
 {"source_id": "gold-0021", "entity_type": "ssn", "category": "government_id", "in_taxonomy": true, "value": "453-28-6496"}
 {"source_id": "gold-0021", "entity_type": "vehicle_identifier", "category": "government_id", "in_taxonomy": true, "value": "2HGKF25R67H987653"}
 {"source_id": "gold-0022", "entity_type": "date_of_birth", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "1998-09-22"}
-{"source_id": "gold-0022", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "lpalacios@icloud.com"}
+{"source_id": "gold-0022", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "lpalacios@icloud.com"}
 {"source_id": "gold-0022", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Leticia"}
-{"source_id": "gold-0022", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "240-228-3122"}
+{"source_id": "gold-0022", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "240-228-3122"}
 {"source_id": "gold-0022", "entity_type": "ssn", "category": "government_id", "in_taxonomy": true, "value": "218-05-1288"}
 {"source_id": "gold-0022", "entity_type": "street_address", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "382 Beaver Rd"}
 {"source_id": "gold-0023", "entity_type": "certificate_license_number", "category": "government_id", "in_taxonomy": true, "value": "ENG-835274"}
@@ -222,7 +222,7 @@
 {"source_id": "gold-0027", "entity_type": "blood_type", "category": "health", "in_taxonomy": true, "value": "B+"}
 {"source_id": "gold-0027", "entity_type": "country", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "USA"}
 {"source_id": "gold-0027", "entity_type": "education_level", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "high school"}
-{"source_id": "gold-0027", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "tyler.b12@gmail.com"}
+{"source_id": "gold-0027", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "tyler.b12@gmail.com"}
 {"source_id": "gold-0027", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Tyler"}
 {"source_id": "gold-0027", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Tyler"}
 {"source_id": "gold-0027", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Branham"}
@@ -247,12 +247,12 @@
 {"source_id": "gold-0030", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Willard"}
 {"source_id": "gold-0030", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Justi"}
 {"source_id": "gold-0030", "entity_type": "medical_record_number", "category": "health", "in_taxonomy": true, "value": "0002591348"}
-{"source_id": "gold-0030", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "212-983-6868"}
+{"source_id": "gold-0030", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "212-983-6868"}
 {"source_id": "gold-0031", "entity_type": "blood_type", "category": "health", "in_taxonomy": true, "value": "O+"}
 {"source_id": "gold-0031", "entity_type": "county", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Carter County"}
 {"source_id": "gold-0031", "entity_type": "date", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "2025-03-03"}
-{"source_id": "gold-0031", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "healthfair@community.org"}
-{"source_id": "gold-0031", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "healthfair@community.org"}
+{"source_id": "gold-0031", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "healthfair@community.org"}
+{"source_id": "gold-0031", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "healthfair@community.org"}
 {"source_id": "gold-0031", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Jane"}
 {"source_id": "gold-0031", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "John"}
 {"source_id": "gold-0031", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Smith"}
@@ -264,15 +264,15 @@
 {"source_id": "gold-0031", "entity_type": "time", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "14:30:00"}
 {"source_id": "gold-0031", "entity_type": "time", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "16:00:00"}
 {"source_id": "gold-0032", "entity_type": "company_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Silver Screen Entertainment"}
-{"source_id": "gold-0032", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "elizabetha82@gmail.com"}
+{"source_id": "gold-0032", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "elizabetha82@gmail.com"}
 {"source_id": "gold-0032", "entity_type": "employment_status", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "intern"}
 {"source_id": "gold-0032", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Elizabeth"}
 {"source_id": "gold-0032", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Mcneil"}
 {"source_id": "gold-0032", "entity_type": "occupation", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Lead Role"}
 {"source_id": "gold-0032", "entity_type": "occupation", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "retail salesperson"}
 {"source_id": "gold-0032", "entity_type": "occupation", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Supporting Role"}
-{"source_id": "gold-0032", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "448-271-5759"}
-{"source_id": "gold-0033", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "hanna.samy74@icloud.com"}
+{"source_id": "gold-0032", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "448-271-5759"}
+{"source_id": "gold-0033", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "hanna.samy74@icloud.com"}
 {"source_id": "gold-0033", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Hanna"}
 {"source_id": "gold-0033", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Hanna"}
 {"source_id": "gold-0033", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Samy"}
@@ -299,7 +299,7 @@
 {"source_id": "gold-0036", "entity_type": "country", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "USA"}
 {"source_id": "gold-0036", "entity_type": "country", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "USA"}
 {"source_id": "gold-0036", "entity_type": "date_time", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "2024-11-13T08:00:00"}
-{"source_id": "gold-0036", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "ofaison62@icloud.com"}
+{"source_id": "gold-0036", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "ofaison62@icloud.com"}
 {"source_id": "gold-0036", "entity_type": "fax_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "517-909-1943"}
 {"source_id": "gold-0036", "entity_type": "state", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Michigan"}
 {"source_id": "gold-0036", "entity_type": "state", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Michigan"}
@@ -323,10 +323,10 @@
 {"source_id": "gold-0039", "entity_type": "county", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Union County"}
 {"source_id": "gold-0039", "entity_type": "date", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "20230715"}
 {"source_id": "gold-0039", "entity_type": "date", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "20230715"}
-{"source_id": "gold-0039", "entity_type": "email", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "pamelad@icloud.com"}
+{"source_id": "gold-0039", "entity_type": "email", "category": "contact_identifier", "in_taxonomy": true, "value": "pamelad@icloud.com"}
 {"source_id": "gold-0039", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Pamela"}
 {"source_id": "gold-0039", "entity_type": "first_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Pamela"}
 {"source_id": "gold-0039", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Decker"}
 {"source_id": "gold-0039", "entity_type": "last_name", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Decker"}
-{"source_id": "gold-0039", "entity_type": "phone_number", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "704-346-1724"}
+{"source_id": "gold-0039", "entity_type": "phone_number", "category": "contact_identifier", "in_taxonomy": true, "value": "704-346-1724"}
 {"source_id": "gold-0039", "entity_type": "political_view", "category": "out_of_taxonomy", "in_taxonomy": false, "value": "Constitutionalist"}

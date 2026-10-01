@@ -54,7 +54,7 @@ _ROWS_URL = (
 _POOL_OFFSETS = (0, 100, 200, 300, 400, 500, 600, 700)  # deterministic pool (~800 rows)
 
 # Nemotron label -> our approved taxonomy category. Everything else is out-of-taxonomy
-# (real PII, but not one of the three flagged categories — a true negative for flagging).
+# (real PII, but not one of the flagged categories — a true negative for flagging).
 _CATEGORY_MAP = {
     # financial
     "account_number": "financial",
@@ -73,11 +73,17 @@ _CATEGORY_MAP = {
     "blood_type": "health",
     "health_plan_beneficiary_number": "health",
     "medical_record_number": "health",
+    # contact_identifier (email / phone / LinkedIn — Contract 2 names these explicitly)
+    "email": "contact_identifier",
+    "phone_number": "contact_identifier",
 }
-_TAXONOMY = ("financial", "government_id", "health")
+_TAXONOMY = ("financial", "government_id", "health", "contact_identifier")
 
 # How many of each bucket to include (deterministic; capped by availability).
-_QUOTA = {"financial": 12, "government_id": 12, "health": 8, "out_of_taxonomy": 8}
+_QUOTA = {
+    "financial": 12, "government_id": 12, "health": 8,
+    "contact_identifier": 8, "out_of_taxonomy": 8,
+}
 # Born-digital (text layer) + scanned (image-only / degraded → OCR path) — a realistic mix.
 _FORMATS = ("txt", "pdf", "png", "docx", "xlsx", "scan_pdf", "scan_jpg")
 
