@@ -1,0 +1,6 @@
+# Rendered media + capture intermediates are build artifacts, not source — regenerate
+# them from console-tour.mjs (see README). Keep large binaries out of git history.
+out/
+*.mp4
+*.webm
+*.wav
