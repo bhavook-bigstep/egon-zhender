@@ -202,10 +202,13 @@ class OcrConfig(BaseModel):
     provider: str = "stub"  # stub | docling | preprocess
     url: str | None = None  # docling/preprocess: OCR service base URL
     # preprocess provider: rasterise PDFs + clean images before OCR (degraded-scan recovery).
-    dpi: int = 200  # PDF rasterisation resolution
+    dpi: int = 300  # PDF rasterisation resolution (higher gives blurred text more detail)
     deskew: bool = True
     denoise: bool = True
     binarize: bool = True
+    contrast: bool = True  # CLAHE local-contrast lift (faint/low-contrast scans)
+    sharpen: bool = True  # unsharp mask — restores edges blur smears (heavy-blur recovery)
+    sauvola_window: int = 25  # adaptive-threshold neighbourhood (larger keeps blurred strokes)
 
 
 class RecogniserConfig(BaseModel):

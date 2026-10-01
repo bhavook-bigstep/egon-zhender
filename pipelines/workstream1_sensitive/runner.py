@@ -198,6 +198,9 @@ def build_ocr(cfg: Ws1Config) -> OCRProvider:
             deskew=cfg.ocr.deskew,
             denoise=cfg.ocr.denoise,
             binarize=cfg.ocr.binarize,
+            contrast=cfg.ocr.contrast,
+            sharpen=cfg.ocr.sharpen,
+            sauvola_window=cfg.ocr.sauvola_window,
         )
     raise ValueError(f"unsupported ocr provider: {cfg.ocr.provider}")
 

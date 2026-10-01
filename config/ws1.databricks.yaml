@@ -73,11 +73,16 @@ ocr_gate:
   max_image_coverage: 0.5
 
 ocr:
-  # Preprocess (deskew/denoise/adaptive-binarise) + rasterise PDFs before OCR, to recover
-  # degraded scans docling returns empty for. Needs requirements-ml.txt (pypdfium2, scikit-image).
+  # Preprocess (deskew/contrast/denoise/sharpen/adaptive-binarise) + rasterise PDFs before
+  # OCR, to recover degraded scans docling returns empty for. Needs requirements-ml.txt
+  # (pypdfium2, scikit-image). The contrast(CLAHE)+sharpen(unsharp) steps + higher dpi target
+  # HEAVILY BLURRED pages specifically; raise dpi to 400 for the worst scans at more compute.
   provider: preprocess
   url: http://localhost:5001
-  dpi: 200
+  dpi: 300
+  contrast: true
+  sharpen: true
+  sauvola_window: 25
 
 taxonomy:
   version: poc-synth-1

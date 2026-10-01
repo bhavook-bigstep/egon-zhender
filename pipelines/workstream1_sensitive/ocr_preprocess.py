@@ -27,11 +27,24 @@ _SKEW_ANGLE_STEP_DEG: float = 0.5
 
 
 def preprocess_image(
-    data: bytes, *, deskew: bool = True, denoise: bool = True, binarize: bool = True
+    data: bytes,
+    *,
+    deskew: bool = True,
+    denoise: bool = True,
+    binarize: bool = True,
+    contrast: bool = True,
+    sharpen: bool = True,
+    sauvola_window: int = 25,
 ) -> bytes:
-    """Grayscale -> (deskew) -> (median denoise) -> (Sauvola adaptive binarise) -> PNG bytes.
+    """Clean one raster page for OCR; deterministic. Lazy-imports PIL, numpy, skimage.
 
-    Deterministic. Lazy-imports PIL, numpy, skimage.
+    Pipeline: grayscale -> (deskew) -> (CLAHE local contrast) -> (median denoise) ->
+    (unsharp-mask sharpen) -> (Sauvola adaptive binarise) -> PNG bytes.
+
+    The `contrast` and `sharpen` steps target HEAVILY BLURRED / low-contrast scans: CLAHE
+    lifts faint, unevenly-lit text, and the unsharp mask restores the edges blur smears —
+    the two biggest wins for a scan an OCR engine otherwise returns empty for. A larger
+    `sauvola_window` keeps blurred strokes intact where a small window shreds them.
     """
     from PIL import Image, ImageFilter  # lazy: optional ML dep
 
@@ -43,11 +56,20 @@ def preprocess_image(
             if angle != 0.0:
                 image = image.rotate(angle, expand=True, fillcolor=255)
 
+        if contrast:
+            image = _clahe(image)
+
         if denoise:
             image = image.filter(ImageFilter.MedianFilter(size=3))
 
+        if sharpen:
+            # Recover edges lost to blur before binarising (otherwise Sauvola sees mush).
+            image = image.filter(
+                ImageFilter.UnsharpMask(radius=2, percent=180, threshold=2)
+            )
+
         if binarize:
-            image = _sauvola_binarize(image)
+            image = _sauvola_binarize(image, window_size=sauvola_window)
 
         buffer = BytesIO()
         image.save(buffer, format="PNG")
@@ -110,16 +132,33 @@ def _estimate_skew_angle(image: PILImage.Image) -> float:
     return best_angle
 
 
-def _sauvola_binarize(image: PILImage.Image) -> PILImage.Image:
+def _clahe(image: PILImage.Image) -> PILImage.Image:
+    """Contrast-Limited Adaptive Histogram Equalisation (local contrast), returning 'L'.
+
+    Lifts faint/unevenly-lit text in a degraded scan without blowing out clean regions.
+    Deterministic (fixed clip limit). Lazy-imports numpy and skimage.
+    """
+    import numpy as np  # lazy: optional ML dep
+    from PIL import Image  # lazy: optional ML dep
+    from skimage.exposure import equalize_adapthist  # lazy: optional ML dep
+
+    array = np.asarray(image, dtype=np.float64) / 255.0
+    equalised = equalize_adapthist(array, clip_limit=0.01)
+    return Image.fromarray((equalised * 255.0).astype(np.uint8), mode="L")
+
+
+def _sauvola_binarize(image: PILImage.Image, *, window_size: int = 25) -> PILImage.Image:
     """Apply Sauvola adaptive thresholding, returning a black/white ('L') image.
 
-    Lazy-imports numpy and skimage.
+    `window_size` (odd) sets the local neighbourhood: larger keeps blurred strokes intact
+    where a small window shreds them. Lazy-imports numpy and skimage.
     """
     import numpy as np  # lazy: optional ML dep
     from PIL import Image  # lazy: optional ML dep
     from skimage.filters import threshold_sauvola  # lazy: optional ML dep
 
+    window = window_size if window_size % 2 == 1 else window_size + 1  # skimage needs odd
     array = np.asarray(image, dtype=np.float64)
-    threshold = threshold_sauvola(array)
+    threshold = threshold_sauvola(array, window_size=window)
     binary = array > threshold
     return Image.fromarray((binary * 255).astype(np.uint8), mode="L")

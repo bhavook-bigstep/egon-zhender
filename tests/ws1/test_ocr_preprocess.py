@@ -69,6 +69,42 @@ def test_preprocess_image_honours_disabled_stages() -> None:
         assert reopened.mode == "L"
 
 
+def test_blur_recovery_sharpens_edges() -> None:
+    """The contrast+sharpen path restores edge contrast a Gaussian blur smears, so blurred
+    text is recoverable where the un-sharpened path leaves it mushy. Deterministic."""
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("numpy")
+    pytest.importorskip("skimage")
+
+    from io import BytesIO
+
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    # Build a heavily-blurred version of the synthetic page.
+    with Image.open(BytesIO(_synthetic_png_bytes())) as base:
+        blurred = base.convert("L").filter(ImageFilter.GaussianBlur(radius=3))
+    blurred_buf = BytesIO()
+    blurred.save(blurred_buf, format="PNG")
+    blurred_png = blurred_buf.getvalue()
+
+    def edge_energy(png: bytes) -> float:
+        with Image.open(BytesIO(png)) as img:
+            arr = np.asarray(img.convert("L"), dtype=np.float64)
+        return float(np.var(np.diff(arr, axis=1)))  # horizontal gradient variance
+
+    recovered = preprocess_image(blurred_png, deskew=False, contrast=True, sharpen=True)
+    mushy = preprocess_image(
+        blurred_png, deskew=False, contrast=False, sharpen=False, binarize=False
+    )
+    # Sharpen+contrast+binarise yields crisper edges than leaving the blur untouched.
+    assert edge_energy(recovered) > edge_energy(mushy)
+    # Deterministic.
+    assert preprocess_image(blurred_png, deskew=False) == preprocess_image(
+        blurred_png, deskew=False
+    )
+
+
 def test_rasterize_pdf_returns_one_png_per_page() -> None:
     pytest.importorskip("pypdfium2")
     pytest.importorskip("PIL.Image")

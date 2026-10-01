@@ -24,10 +24,13 @@ class PreprocessOcrProvider:
         self,
         base_url: str,
         *,
-        dpi: int = 200,
+        dpi: int = 300,
         deskew: bool = True,
         denoise: bool = True,
         binarize: bool = True,
+        contrast: bool = True,
+        sharpen: bool = True,
+        sauvola_window: int = 25,
         client: ConvertClient | None = None,
     ) -> None:
         self._client = client if client is not None else HttpConvertClient(base_url)
@@ -35,6 +38,9 @@ class PreprocessOcrProvider:
         self._deskew = deskew
         self._denoise = denoise
         self._binarize = binarize
+        self._contrast = contrast
+        self._sharpen = sharpen
+        self._sauvola_window = sauvola_window
 
     @staticmethod
     def _is_pdf(entry: ManifestEntry, data: bytes) -> bool:
@@ -65,7 +71,13 @@ class PreprocessOcrProvider:
         for index, page in enumerate(pages):
             try:
                 cleaned = preprocess_image(
-                    page, deskew=self._deskew, denoise=self._denoise, binarize=self._binarize
+                    page,
+                    deskew=self._deskew,
+                    denoise=self._denoise,
+                    binarize=self._binarize,
+                    contrast=self._contrast,
+                    sharpen=self._sharpen,
+                    sauvola_window=self._sauvola_window,
                 )
             except Exception as exc:  # preprocessing failure → typed, fail loud
                 raise PipelineItemError(
