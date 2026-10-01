@@ -48,11 +48,12 @@ ocr_gate:
   max_image_coverage: 0.5
 
 taxonomy:
-  version: poc-synth-0
+  version: poc-synth-1
   categories:
     - financial
     - government_id
     - health
+    - contact_identifier   # email / phone / LinkedIn — Contract 2 names these explicitly
 
 extract:
   engine: decode            # decode | native | docling | tika

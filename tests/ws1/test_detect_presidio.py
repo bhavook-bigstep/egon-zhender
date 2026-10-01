@@ -54,9 +54,26 @@ def test_ner_entity_maps_to_classifier_score() -> None:
     assert finding.category == "health"
 
 
-def test_unmapped_entity_is_skipped() -> None:
+def test_unmapped_entity_is_skipped_but_counted() -> None:
     engine = PresidioEngine(CFG, analyzer=_FakeAnalyzer([_FakeResult("URL", 0, 3, 0.9)]))
     assert engine.analyze(_extracted("http://x")) == []
+    assert engine.unmapped_entities == {"URL": 1}  # visible, not a silent drop
+
+
+def test_contact_identifier_mapping() -> None:
+    # EMAIL_ADDRESS / PHONE_NUMBER map to the contact_identifier category (Presidio catches
+    # them at the detect stage — no LLM routing needed).
+    cfg = DetectConfig(
+        engine="presidio",
+        category_map={"EMAIL_ADDRESS": "contact_identifier", "PHONE_NUMBER": "contact_identifier"},
+    )
+    engine = PresidioEngine(
+        cfg, analyzer=_FakeAnalyzer([_FakeResult("EMAIL_ADDRESS", 5, 20, 0.99)])
+    )
+    finding = engine.analyze(_extracted("mail jane@example.com now"))[0]
+    assert finding.category == "contact_identifier"
+    assert finding.score == 99.0
+    assert engine.unmapped_entities == {}
 
 
 def test_checksum_validator_passes_and_fails() -> None:

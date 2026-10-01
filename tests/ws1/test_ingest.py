@@ -47,6 +47,27 @@ def test_ingest_unsupported_type() -> None:
     assert exc.value.code is ExceptionCode.UNSUPPORTED_TYPE
 
 
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        "text/csv",
+        "text/html",
+        "application/msword",  # legacy .doc (Tika)
+        "application/vnd.ms-excel",  # legacy .xls (Tika)
+        "message/rfc822",  # email .eml (Tika)
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+        "image/webp",  # OCR
+    ],
+)
+def test_ingest_accepts_widened_types(content_type: str) -> None:
+    # Formats the configured engine can read are no longer rejected at ingest (before the
+    # extractor that can read them sees them). They pass ingest; extraction handles the rest.
+    data = b"sample bytes"
+    entry = _entry("a", content_type, data)
+    reader = DictReader([entry], {"a": data})
+    assert ingest(reader, entry) == data
+
+
 def test_ingest_not_in_manifest() -> None:
     data = b"hi"
     entry = _entry("a", "text/plain", data)

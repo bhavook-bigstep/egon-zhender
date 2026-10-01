@@ -80,11 +80,12 @@ ocr:
   dpi: 200
 
 taxonomy:
-  version: poc-synth-0
+  version: poc-synth-1
   categories:
     - financial
     - government_id
     - health
+    - contact_identifier   # email / phone / LinkedIn — Contract 2 names these explicitly
 
 detect:
   engine: presidio_http
@@ -110,6 +111,11 @@ detect:
     US_PASSPORT: government_id
     US_DRIVER_LICENSE: government_id
     MEDICAL_LICENSE: health
+    # Contact identifiers — Presidio detects these by pattern/library at the detect stage,
+    # so they flag deterministically WITHOUT routing spans to the LLM (data minimisation,
+    # Contract 2). Any span that does reach the model is still keyed-hash minimised first.
+    EMAIL_ADDRESS: contact_identifier
+    PHONE_NUMBER: contact_identifier
   deterministic_entities:
     - CREDIT_CARD
 

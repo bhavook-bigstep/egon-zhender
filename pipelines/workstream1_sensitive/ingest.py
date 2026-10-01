@@ -12,17 +12,41 @@ from libs.schemas import ExceptionCode, ManifestEntry
 from libs.source.base import SourceReader
 from pipelines.workstream1_sensitive.errors import PipelineItemError
 
-SUPPORTED_TEXT_TYPES = frozenset(
+# The allow-list matches what the configured extraction engine can read. Plain text and
+# markup are read directly (decode/native); the legacy binary office + email formats need a
+# rich engine (Tika/Docling) — under the `decode` default they reach the OCR gate and, if
+# unreadable there, become a TYPED unable_to_process (never a silent drop). The point is that
+# these formats are no longer rejected at ingest before the engine that CAN read them sees them.
+TEXT_TYPES = frozenset(
     {
         "text/plain",
         "text/markdown",
-        "application/pdf",
-        # Office Open XML (handled by the native engine; decode engine → OCR gate).
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+        "text/html",
+        "text/rtf",
     }
 )
-OCR_TYPES = frozenset({"image/png", "image/jpeg", "image/tiff"})
+DOCUMENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        # Office Open XML (native engine reads docx/xlsx; Docling reads pptx).
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+        # Legacy binary office + OpenDocument + email — Tika / Docling.
+        "application/msword",  # .doc
+        "application/vnd.ms-excel",  # .xls
+        "application/vnd.ms-powerpoint",  # .ppt
+        "application/rtf",  # .rtf (alt MIME)
+        "application/vnd.oasis.opendocument.text",  # .odt
+        "application/vnd.oasis.opendocument.spreadsheet",  # .ods
+        "message/rfc822",  # email .eml
+    }
+)
+SUPPORTED_TEXT_TYPES = TEXT_TYPES | DOCUMENT_TYPES
+OCR_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/tiff", "image/bmp", "image/gif", "image/webp"}
+)
 
 
 def ingest(reader: SourceReader, entry: ManifestEntry) -> bytes:
